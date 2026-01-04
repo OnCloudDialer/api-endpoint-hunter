@@ -31,6 +31,15 @@ from src.generator import (
     MarkdownGenerator,
     OpenAPIGenerator,
 )
+from src.config_manager import (
+    save_profile,
+    load_profile,
+    list_profiles,
+    delete_profile,
+    display_profiles,
+    export_profile,
+    import_profile,
+)
 
 # Initialize CLI app
 app = typer.Typer(
@@ -61,7 +70,21 @@ def parse_cookie(cookie: str) -> tuple[str, str]:
 
 @app.command()
 def crawl(
-    url: str = typer.Argument(..., help="The starting URL to crawl"),
+    url: Optional[str] = typer.Argument(None, help="The starting URL to crawl (optional if using --profile)"),
+    
+    # Profile options
+    profile: Optional[str] = typer.Option(
+        None, "--profile", "-P",
+        help="Load settings from a saved profile"
+    ),
+    save_as: Optional[str] = typer.Option(
+        None, "--save-as", "-S",
+        help="Save this configuration as a profile"
+    ),
+    save_description: Optional[str] = typer.Option(
+        "", "--save-description",
+        help="Description for the saved profile"
+    ),
     
     # Authentication options
     login_url: Optional[str] = typer.Option(
@@ -164,45 +187,100 @@ def crawl(
             --cookie "auth=xyz789"
     """
     
-    # Parse headers
-    auth_headers = {}
-    if auth_header:
-        for h in auth_header:
-            name, value = parse_header(h)
-            auth_headers[name] = value
+    # Load from profile if specified
+    if profile:
+        loaded_config = load_profile(profile)
+        if not loaded_config:
+            raise typer.Exit(1)
+        
+        # Override with any CLI arguments provided
+        if url:
+            loaded_config.start_url = url
+        if login_url:
+            loaded_config.login_url = login_url
+        if username:
+            loaded_config.username = username
+        if password:
+            loaded_config.password = password
+        if username_field:
+            loaded_config.username_field = username_field
+        if password_field:
+            loaded_config.password_field = password_field
+        if auth_header:
+            for h in auth_header:
+                name, value = parse_header(h)
+                loaded_config.auth_headers[name] = value
+        if cookie:
+            for c in cookie:
+                name, value = parse_cookie(c)
+                loaded_config.cookies[name] = value
+        if max_pages != 50:  # Not default
+            loaded_config.max_pages = max_pages
+        if max_depth != 3:
+            loaded_config.max_depth = max_depth
+        if wait_time != 2000:
+            loaded_config.wait_time = wait_time
+        if not headless:
+            loaded_config.headless = headless
+        if output != "./api-docs":
+            loaded_config.output_dir = output
+        if format != "both":
+            loaded_config.output_format = format
+        if include:
+            loaded_config.include_patterns = list(include)
+        if exclude:
+            loaded_config.exclude_patterns = list(exclude)
+        
+        config = loaded_config
+    else:
+        # Require URL if no profile
+        if not url:
+            console.print("[red]✗[/] Error: URL is required (or use --profile to load a saved configuration)")
+            raise typer.Exit(1)
+        
+        # Parse headers
+        auth_headers = {}
+        if auth_header:
+            for h in auth_header:
+                name, value = parse_header(h)
+                auth_headers[name] = value
+        
+        # Parse cookies
+        cookies = {}
+        if cookie:
+            for c in cookie:
+                name, value = parse_cookie(c)
+                cookies[name] = value
+        
+        # Build config
+        config = CrawlConfig(
+            start_url=url,
+            login_url=login_url,
+            username=username,
+            password=password,
+            username_field=username_field,
+            password_field=password_field,
+            auth_headers=auth_headers,
+            cookies=cookies,
+            max_pages=max_pages,
+            max_depth=max_depth,
+            wait_time=wait_time,
+            headless=headless,
+            output_dir=output,
+            output_format=format,
+            include_patterns=list(include) if include else [],
+            exclude_patterns=list(exclude) if exclude else [
+                r".*\.(png|jpg|jpeg|gif|svg|ico|css|js|woff|woff2|ttf|eot)(\?.*)?$",
+                r".*/sockjs-node/.*",
+                r".*/hot-update\.json$",
+                r".*/__webpack_hmr.*",
+                r".*/favicon\.ico$",
+            ],
+        )
     
-    # Parse cookies
-    cookies = {}
-    if cookie:
-        for c in cookie:
-            name, value = parse_cookie(c)
-            cookies[name] = value
-    
-    # Build config
-    config = CrawlConfig(
-        start_url=url,
-        login_url=login_url,
-        username=username,
-        password=password,
-        username_field=username_field,
-        password_field=password_field,
-        auth_headers=auth_headers,
-        cookies=cookies,
-        max_pages=max_pages,
-        max_depth=max_depth,
-        wait_time=wait_time,
-        headless=headless,
-        output_dir=output,
-        output_format=format,
-        include_patterns=list(include) if include else [],
-        exclude_patterns=list(exclude) if exclude else [
-            r".*\.(png|jpg|jpeg|gif|svg|ico|css|js|woff|woff2|ttf|eot)(\?.*)?$",
-            r".*/sockjs-node/.*",
-            r".*/hot-update\.json$",
-            r".*/__webpack_hmr.*",
-            r".*/favicon\.ico$",
-        ],
-    )
+    # Save profile if requested
+    if save_as:
+        save_profile(save_as, config, save_description)
     
     # Run the crawler
     asyncio.run(run_crawl(config))
@@ -344,6 +422,78 @@ def version():
         title="About",
         border_style="cyan",
     ))
+
+
+# Profile management commands
+profiles_app = typer.Typer(
+    name="profiles",
+    help="📁 Manage saved configuration profiles",
+)
+app.add_typer(profiles_app, name="profiles")
+
+
+@profiles_app.command("list")
+def profiles_list():
+    """List all saved profiles."""
+    display_profiles()
+
+
+@profiles_app.command("show")
+def profiles_show(name: str = typer.Argument(..., help="Profile name to show")):
+    """Show details of a specific profile."""
+    config = load_profile(name)
+    if config:
+        console.print("\n[bold]Configuration:[/]")
+        console.print(f"  [cyan]URL:[/] {config.start_url}")
+        if config.login_url:
+            console.print(f"  [cyan]Login URL:[/] {config.login_url}")
+        if config.username:
+            console.print(f"  [cyan]Username:[/] {config.username}")
+        if config.password:
+            console.print(f"  [cyan]Password:[/] {'*' * len(config.password)}")
+        if config.auth_headers:
+            console.print(f"  [cyan]Auth Headers:[/] {len(config.auth_headers)} header(s)")
+        if config.cookies:
+            console.print(f"  [cyan]Cookies:[/] {len(config.cookies)} cookie(s)")
+        console.print(f"  [cyan]Max Pages:[/] {config.max_pages}")
+        console.print(f"  [cyan]Max Depth:[/] {config.max_depth}")
+        console.print(f"  [cyan]Wait Time:[/] {config.wait_time}ms")
+        console.print(f"  [cyan]Headless:[/] {config.headless}")
+
+
+@profiles_app.command("delete")
+def profiles_delete(
+    name: str = typer.Argument(..., help="Profile name to delete"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+):
+    """Delete a saved profile."""
+    if not force:
+        confirm = typer.confirm(f"Are you sure you want to delete profile '{name}'?")
+        if not confirm:
+            console.print("[dim]Cancelled.[/]")
+            return
+    
+    delete_profile(name)
+
+
+@profiles_app.command("export")
+def profiles_export(
+    name: str = typer.Argument(..., help="Profile name to export"),
+    output: str = typer.Option("./", "--output", "-o", help="Output directory or file path"),
+):
+    """Export a profile to a file."""
+    if os.path.isdir(output):
+        output = os.path.join(output, f"{name}.json")
+    export_profile(name, output)
+
+
+@profiles_app.command("import")
+def profiles_import(
+    file_path: str = typer.Argument(..., help="Path to profile JSON file"),
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="Name for the imported profile"),
+):
+    """Import a profile from a file."""
+    import_profile(file_path, name)
 
 
 if __name__ == "__main__":

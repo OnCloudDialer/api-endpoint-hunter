@@ -649,6 +649,84 @@
             font-family: 'JetBrains Mono', monospace;
         }
 
+        /* Profile bar */
+        .profile-bar {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.25rem;
+            padding-bottom: 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .profile-bar select {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .profile-bar select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .btn-icon {
+            width: 42px;
+            height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-icon:hover {
+            background: var(--bg-secondary);
+            border-color: var(--accent-primary);
+        }
+
+        /* Save profile modal */
+        .save-modal .modal {
+            max-width: 380px;
+        }
+
+        .save-modal .modal-icon {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+        }
+
+        .save-modal .form-group {
+            text-align: left;
+        }
+
+        .save-modal input, .save-modal textarea {
+            width: 100%;
+            margin-top: 0.5rem;
+        }
+
+        .save-modal textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1.5rem;
+        }
+
+        .modal-buttons .btn {
+            flex: 1;
+        }
+
         /* Checkbox */
         .checkbox-group {
             display: flex;
@@ -702,6 +780,27 @@
     <div class="bg-glow bg-glow-1"></div>
     <div class="bg-glow bg-glow-2"></div>
 
+    <!-- Save Profile Modal -->
+    <div class="modal-overlay save-modal" id="saveProfileModal">
+        <div class="modal">
+            <div class="modal-icon">💾</div>
+            <h2>Save Profile</h2>
+            <p>Save this configuration for quick access later</p>
+            <div class="form-group">
+                <label for="profileName">Profile Name</label>
+                <input type="text" id="profileName" placeholder="e.g., my-app-staging">
+            </div>
+            <div class="form-group">
+                <label for="profileDescription">Description (optional)</label>
+                <textarea id="profileDescription" placeholder="e.g., Staging environment with test credentials"></textarea>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" onclick="hideSaveProfileModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveCurrentProfile()">💾 Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 2FA Modal -->
     <div class="modal-overlay" id="twoFaModal">
         <div class="modal">
@@ -744,6 +843,19 @@
                     <h2>Configuration</h2>
                 </div>
                 <div class="card-body">
+                    <!-- Profile selector -->
+                    <div class="profile-bar">
+                        <select id="profileSelect" onchange="loadProfile()">
+                            <option value="">— Select a saved profile —</option>
+                        </select>
+                        <button type="button" class="btn-icon" onclick="showSaveProfileModal()" title="Save current config">
+                            💾
+                        </button>
+                        <button type="button" class="btn-icon" onclick="deleteCurrentProfile()" title="Delete selected profile" id="deleteProfileBtn" style="display: none;">
+                            🗑️
+                        </button>
+                    </div>
+
                     <form id="crawlForm">
                         <div class="form-group">
                             <label for="url">Target URL</label>
@@ -1223,8 +1335,189 @@
             }
         }
 
+        // Profile management
+        let currentProfileName = null;
+
+        async function loadProfiles() {
+            try {
+                const response = await fetch('/api/profiles');
+                const data = await response.json();
+                const select = document.getElementById('profileSelect');
+                
+                // Clear existing options except the first
+                select.innerHTML = '<option value="">— Select a saved profile —</option>';
+                
+                // Add profiles
+                data.profiles.forEach(profile => {
+                    const option = document.createElement('option');
+                    option.value = profile.name;
+                    option.textContent = profile.name + (profile.description ? ` - ${profile.description}` : '');
+                    select.appendChild(option);
+                });
+            } catch (err) {
+                console.error('Failed to load profiles:', err);
+            }
+        }
+
+        async function loadProfile() {
+            const select = document.getElementById('profileSelect');
+            const name = select.value;
+            
+            if (!name) {
+                currentProfileName = null;
+                document.getElementById('deleteProfileBtn').style.display = 'none';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/profiles/${encodeURIComponent(name)}`);
+                const data = await response.json();
+                
+                if (data.config) {
+                    // Fill form with profile data
+                    document.getElementById('url').value = data.config.url || '';
+                    document.getElementById('loginUrl').value = data.config.login_url || '';
+                    document.getElementById('username').value = data.config.username || '';
+                    document.getElementById('password').value = data.config.password || '';
+                    document.getElementById('maxPages').value = data.config.max_pages || 50;
+                    document.getElementById('maxDepth').value = data.config.max_depth || 3;
+                    document.getElementById('waitTime').value = data.config.wait_time || 2000;
+                    document.getElementById('headless').checked = data.config.headless !== false;
+                    
+                    // Handle auth headers
+                    if (data.config.auth_headers && Object.keys(data.config.auth_headers).length > 0) {
+                        const headers = Object.entries(data.config.auth_headers)
+                            .map(([k, v]) => `${k}: ${v}`)
+                            .join('; ');
+                        document.getElementById('authHeader').value = headers;
+                    } else {
+                        document.getElementById('authHeader').value = '';
+                    }
+                    
+                    // Handle cookies
+                    if (data.config.cookies && Object.keys(data.config.cookies).length > 0) {
+                        const cookies = Object.entries(data.config.cookies)
+                            .map(([k, v]) => `${k}=${v}`)
+                            .join('; ');
+                        document.getElementById('cookies').value = cookies;
+                    } else {
+                        document.getElementById('cookies').value = '';
+                    }
+                    
+                    currentProfileName = name;
+                    document.getElementById('deleteProfileBtn').style.display = 'flex';
+                    
+                    addLog(`📁 Loaded profile: ${name}`);
+                }
+            } catch (err) {
+                alert('Failed to load profile');
+            }
+        }
+
+        function showSaveProfileModal() {
+            document.getElementById('saveProfileModal').classList.add('active');
+            document.getElementById('profileName').value = currentProfileName || '';
+            document.getElementById('profileDescription').value = '';
+            document.getElementById('profileName').focus();
+        }
+
+        function hideSaveProfileModal() {
+            document.getElementById('saveProfileModal').classList.remove('active');
+        }
+
+        async function saveCurrentProfile() {
+            const name = document.getElementById('profileName').value.trim();
+            const description = document.getElementById('profileDescription').value.trim();
+            
+            if (!name) {
+                alert('Please enter a profile name');
+                return;
+            }
+            
+            // Get current form values
+            const config = {
+                url: document.getElementById('url').value,
+                login_url: document.getElementById('loginUrl').value || null,
+                username: document.getElementById('username').value || null,
+                password: document.getElementById('password').value || null,
+                max_pages: parseInt(document.getElementById('maxPages').value),
+                max_depth: parseInt(document.getElementById('maxDepth').value),
+                wait_time: parseInt(document.getElementById('waitTime').value),
+                headless: document.getElementById('headless').checked,
+                auth_headers: {},
+                cookies: {},
+            };
+            
+            // Parse auth header
+            const authHeader = document.getElementById('authHeader').value;
+            if (authHeader && authHeader.includes(':')) {
+                const [headerName, ...valueParts] = authHeader.split(':');
+                config.auth_headers[headerName.trim()] = valueParts.join(':').trim();
+            }
+            
+            // Parse cookies
+            const cookiesStr = document.getElementById('cookies').value;
+            if (cookiesStr) {
+                cookiesStr.split(';').forEach(cookie => {
+                    const [cookieName, value] = cookie.split('=');
+                    if (cookieName && value) {
+                        config.cookies[cookieName.trim()] = value.trim();
+                    }
+                });
+            }
+            
+            try {
+                const response = await fetch('/api/profiles', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, description, config }),
+                });
+                
+                if (response.ok) {
+                    hideSaveProfileModal();
+                    await loadProfiles();
+                    document.getElementById('profileSelect').value = name;
+                    currentProfileName = name;
+                    document.getElementById('deleteProfileBtn').style.display = 'flex';
+                    addLog(`💾 Profile saved: ${name}`);
+                } else {
+                    const error = await response.json();
+                    alert(error.error || 'Failed to save profile');
+                }
+            } catch (err) {
+                alert('Failed to save profile');
+            }
+        }
+
+        async function deleteCurrentProfile() {
+            if (!currentProfileName) return;
+            
+            if (!confirm(`Are you sure you want to delete profile "${currentProfileName}"?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/profiles/${encodeURIComponent(currentProfileName)}`, {
+                    method: 'DELETE',
+                });
+                
+                if (response.ok) {
+                    addLog(`🗑️ Profile deleted: ${currentProfileName}`);
+                    currentProfileName = null;
+                    document.getElementById('profileSelect').value = '';
+                    document.getElementById('deleteProfileBtn').style.display = 'none';
+                    await loadProfiles();
+                } else {
+                    alert('Failed to delete profile');
+                }
+            } catch (err) {
+                alert('Failed to delete profile');
+            }
+        }
+
         // Initialize
         connectWebSocket();
+        loadProfiles();
     </script>
 </body>
 </html>

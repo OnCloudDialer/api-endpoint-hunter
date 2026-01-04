@@ -23,6 +23,7 @@ from src.crawler import Crawler
 from src.analyzer import EndpointAnalyzer
 from src.generator import DocumentationWriter, MarkdownGenerator, OpenAPIGenerator
 from src.auth import set_2fa_callback
+from src.config_manager import save_profile, load_profile, list_profiles, delete_profile
 
 app = FastAPI(title="API Endpoint Hunter")
 
@@ -51,6 +52,12 @@ class CrawlRequest(BaseModel):
     max_depth: int = 3
     wait_time: int = 2000
     headless: bool = True
+
+
+class SaveProfileRequest(BaseModel):
+    name: str
+    description: str = ""
+    config: CrawlRequest
 
 
 # WebSocket connections for live updates
@@ -117,6 +124,71 @@ async def get_markdown_doc():
     if docs_path.exists():
         return FileResponse(docs_path, media_type="text/markdown")
     return JSONResponse({"error": "No documentation generated yet"}, status_code=404)
+
+
+# Profile management endpoints
+@app.get("/api/profiles")
+async def get_profiles():
+    """List all saved profiles."""
+    profiles = list_profiles()
+    return {"profiles": profiles}
+
+
+@app.get("/api/profiles/{name}")
+async def get_profile(name: str):
+    """Load a specific profile."""
+    config = load_profile(name)
+    if not config:
+        return JSONResponse({"error": "Profile not found"}, status_code=404)
+    
+    return {
+        "name": name,
+        "config": {
+            "url": config.start_url,
+            "login_url": config.login_url,
+            "username": config.username,
+            "password": config.password,
+            "username_field": config.username_field,
+            "password_field": config.password_field,
+            "auth_headers": config.auth_headers,
+            "cookies": config.cookies,
+            "max_pages": config.max_pages,
+            "max_depth": config.max_depth,
+            "wait_time": config.wait_time,
+            "headless": config.headless,
+        }
+    }
+
+
+@app.post("/api/profiles")
+async def create_profile(request: SaveProfileRequest):
+    """Save a new profile."""
+    config = CrawlConfig(
+        start_url=request.config.url,
+        login_url=request.config.login_url,
+        username=request.config.username,
+        password=request.config.password,
+        username_field=request.config.username_field,
+        password_field=request.config.password_field,
+        auth_headers=request.config.auth_headers,
+        cookies=request.config.cookies,
+        max_pages=request.config.max_pages,
+        max_depth=request.config.max_depth,
+        wait_time=request.config.wait_time,
+        headless=request.config.headless,
+    )
+    
+    save_profile(request.name, config, request.description)
+    return {"status": "saved", "name": request.name}
+
+
+@app.delete("/api/profiles/{name}")
+async def remove_profile(name: str):
+    """Delete a profile."""
+    success = delete_profile(name)
+    if success:
+        return {"status": "deleted"}
+    return JSONResponse({"error": "Profile not found"}, status_code=404)
 
 
 @app.post("/api/crawl")
