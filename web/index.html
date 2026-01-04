@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Endpoint Hunter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a25;
+            --bg-card: #16161f;
+            --border-color: #2a2a3a;
+            --text-primary: #f0f0f5;
+            --text-secondary: #8888a0;
+            --text-muted: #5a5a70;
+            --accent-primary: #6366f1;
+            --accent-secondary: #818cf8;
+            --accent-glow: rgba(99, 102, 241, 0.3);
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --method-get: #22c55e;
+            --method-post: #3b82f6;
+            --method-put: #f59e0b;
+            --method-patch: #a855f7;
+            --method-delete: #ef4444;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Background effects */
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: 
+                linear-gradient(rgba(99, 102, 241, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(99, 102, 241, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .bg-glow {
+            position: fixed;
+            width: 600px;
+            height: 600px;
+            border-radius: 50%;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            filter: blur(80px);
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.5;
+        }
+
+        .bg-glow-1 { top: -200px; left: -200px; }
+        .bg-glow-2 { bottom: -200px; right: -200px; background: radial-gradient(circle, rgba(34, 197, 94, 0.2) 0%, transparent 70%); }
+
+        /* Layout */
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Header */
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding-top: 2rem;
+        }
+
+        .logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .logo-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            box-shadow: 0 8px 32px var(--accent-glow);
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .tagline {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            font-weight: 300;
+        }
+
+        /* Main grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 400px 1fr;
+            gap: 2rem;
+            align-items: start;
+        }
+
+        @media (max-width: 1024px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .card-header h2 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .card-header-icon {
+            font-size: 1.25rem;
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        /* Form */
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+
+        .form-group:last-child {
+            margin-bottom: 0;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        input, textarea, select {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        input::placeholder {
+            color: var(--text-muted);
+        }
+
+        /* Collapsible sections */
+        .collapsible {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+
+        .collapsible-header {
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+            transition: background 0.2s ease;
+        }
+
+        .collapsible-header:hover {
+            background: var(--bg-secondary);
+        }
+
+        .collapsible-header h3 {
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .collapsible-arrow {
+            transition: transform 0.2s ease;
+        }
+
+        .collapsible.open .collapsible-arrow {
+            transform: rotate(180deg);
+        }
+
+        .collapsible-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .collapsible.open .collapsible-content {
+            max-height: 500px;
+        }
+
+        .collapsible-inner {
+            padding: 1rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 10px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            color: white;
+            box-shadow: 0 4px 20px var(--accent-glow);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px var(--accent-glow);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-secondary);
+            border-color: var(--text-muted);
+        }
+
+        .btn-danger {
+            background: var(--error);
+            color: white;
+        }
+
+        .btn-full {
+            width: 100%;
+        }
+
+        /* Progress */
+        .progress-section {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .progress-bar-container {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            height: 8px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+            border-radius: 8px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .progress-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+
+        .stat {
+            text-align: center;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-secondary);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 0.25rem;
+        }
+
+        /* Status messages */
+        .status-message {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+
+        .status-message.success {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .status-message.error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        /* Endpoints list */
+        .endpoints-panel {
+            max-height: 600px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .endpoints-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+        }
+
+        .endpoints-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .endpoints-list::-webkit-scrollbar-track {
+            background: var(--bg-tertiary);
+        }
+
+        .endpoints-list::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        .endpoint-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+            margin-bottom: 0.75rem;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .endpoint-item:hover {
+            background: var(--bg-secondary);
+            transform: translateX(4px);
+        }
+
+        .endpoint-method {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.35rem 0.6rem;
+            border-radius: 6px;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .method-GET { background: rgba(34, 197, 94, 0.15); color: var(--method-get); }
+        .method-POST { background: rgba(59, 130, 246, 0.15); color: var(--method-post); }
+        .method-PUT { background: rgba(245, 158, 11, 0.15); color: var(--method-put); }
+        .method-PATCH { background: rgba(168, 85, 247, 0.15); color: var(--method-patch); }
+        .method-DELETE { background: rgba(239, 68, 68, 0.15); color: var(--method-delete); }
+
+        .endpoint-path {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: var(--text-primary);
+            flex: 1;
+        }
+
+        .endpoint-count {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            background: var(--bg-primary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        .empty-state p {
+            font-size: 0.9rem;
+        }
+
+        /* Download buttons */
+        .download-buttons {
+            display: flex;
+            gap: 0.75rem;
+            padding: 1rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .download-buttons .btn {
+            flex: 1;
+            padding: 0.75rem;
+            font-size: 0.85rem;
+        }
+
+        /* Live log */
+        .live-log {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 1rem;
+        }
+
+        .log-entry {
+            padding: 0.25rem 0;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .log-entry .time {
+            color: var(--text-muted);
+        }
+
+        .log-entry.api {
+            color: var(--accent-secondary);
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-in {
+            animation: slideIn 0.3s ease forwards;
+        }
+
+        /* Checkbox */
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+            accent-color: var(--accent-primary);
+        }
+
+        .checkbox-group label {
+            margin: 0;
+            cursor: pointer;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab {
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .tab:hover {
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+        }
+
+        .tab.active {
+            color: var(--accent-secondary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-grid"></div>
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
+    <div class="container">
+        <header>
+            <div class="logo">
+                <div class="logo-icon">🔍</div>
+                <div>
+                    <h1>API Endpoint Hunter</h1>
+                    <p class="tagline">Discover and document APIs automatically</p>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-grid">
+            <!-- Left Panel - Configuration -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-header-icon">⚙️</span>
+                    <h2>Configuration</h2>
+                </div>
+                <div class="card-body">
+                    <form id="crawlForm">
+                        <div class="form-group">
+                            <label for="url">Target URL</label>
+                            <input type="url" id="url" name="url" placeholder="https://example.com" required>
+                        </div>
+
+                        <!-- Authentication -->
+                        <div class="collapsible" id="authSection">
+                            <div class="collapsible-header" onclick="toggleCollapsible('authSection')">
+                                <h3>🔐 Authentication</h3>
+                                <span class="collapsible-arrow">▼</span>
+                            </div>
+                            <div class="collapsible-content">
+                                <div class="collapsible-inner">
+                                    <div class="form-group">
+                                        <label for="loginUrl">Login URL (optional)</label>
+                                        <input type="url" id="loginUrl" name="loginUrl" placeholder="https://example.com/login">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="username">Username</label>
+                                        <input type="text" id="username" name="username" placeholder="user@example.com">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="password">Password</label>
+                                        <input type="password" id="password" name="password" placeholder="••••••••">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="authHeader">Auth Header (optional)</label>
+                                        <input type="text" id="authHeader" name="authHeader" placeholder="Authorization: Bearer token...">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="cookies">Cookies (optional)</label>
+                                        <input type="text" id="cookies" name="cookies" placeholder="session=abc123; token=xyz">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Crawl Options -->
+                        <div class="collapsible" id="optionsSection">
+                            <div class="collapsible-header" onclick="toggleCollapsible('optionsSection')">
+                                <h3>🕷️ Crawl Options</h3>
+                                <span class="collapsible-arrow">▼</span>
+                            </div>
+                            <div class="collapsible-content">
+                                <div class="collapsible-inner">
+                                    <div class="form-group">
+                                        <label for="maxPages">Max Pages</label>
+                                        <input type="number" id="maxPages" name="maxPages" value="50" min="1" max="500">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="maxDepth">Max Depth</label>
+                                        <input type="number" id="maxDepth" name="maxDepth" value="3" min="1" max="10">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="waitTime">Wait Time (ms)</label>
+                                        <input type="number" id="waitTime" name="waitTime" value="2000" min="500" max="10000">
+                                    </div>
+                                    <div class="form-group">
+                                        <div class="checkbox-group">
+                                            <input type="checkbox" id="headless" name="headless" checked>
+                                            <label for="headless">Headless Mode (hide browser)</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary btn-full" id="startBtn">
+                            <span>🚀</span> Start Crawl
+                        </button>
+                    </form>
+
+                    <!-- Progress Section -->
+                    <div class="progress-section" id="progressSection" style="display: none;">
+                        <div id="statusMessage" class="status-message">
+                            <span class="loading">⏳</span>
+                            <span>Initializing...</span>
+                        </div>
+
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="progressBar"></div>
+                        </div>
+
+                        <div class="progress-stats">
+                            <div class="stat">
+                                <div class="stat-value" id="pagesVisited">0</div>
+                                <div class="stat-label">Pages</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value" id="apisCaptured">0</div>
+                                <div class="stat-label">APIs</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-value" id="duration">0s</div>
+                                <div class="stat-label">Time</div>
+                            </div>
+                        </div>
+
+                        <button type="button" class="btn btn-danger btn-full" id="stopBtn" style="margin-top: 1rem;">
+                            ⏹️ Stop Crawl
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Results -->
+            <div class="card endpoints-panel">
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('endpoints')">📡 Endpoints</button>
+                    <button class="tab" onclick="switchTab('log')">📋 Live Log</button>
+                </div>
+
+                <div id="endpointsTab" class="endpoints-list">
+                    <div class="empty-state" id="emptyState">
+                        <div class="empty-state-icon">🔍</div>
+                        <p>No endpoints discovered yet.<br>Start a crawl to find API endpoints.</p>
+                    </div>
+                    <div id="endpointsList"></div>
+                </div>
+
+                <div id="logTab" class="endpoints-list" style="display: none;">
+                    <div class="live-log" id="liveLog">
+                        <div class="log-entry"><span class="time">[--:--:--]</span> Waiting for crawl to start...</div>
+                    </div>
+                </div>
+
+                <div class="download-buttons" id="downloadButtons" style="display: none;">
+                    <button class="btn btn-secondary" onclick="downloadFile('openapi')">
+                        📄 OpenAPI Spec
+                    </button>
+                    <button class="btn btn-secondary" onclick="downloadFile('markdown')">
+                        📝 Markdown Docs
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket connection
+        let ws = null;
+        let startTime = null;
+        let timerInterval = null;
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+
+            ws.onclose = () => {
+                setTimeout(connectWebSocket, 1000);
+            };
+        }
+
+        function handleMessage(data) {
+            const logEntry = createLogEntry(JSON.stringify(data));
+            
+            switch (data.type) {
+                case 'status':
+                    updateStatus(data.message);
+                    addLog(data.message);
+                    break;
+                case 'page':
+                    document.getElementById('pagesVisited').textContent = data.visited;
+                    const progress = (data.visited / data.max_pages) * 100;
+                    document.getElementById('progressBar').style.width = `${progress}%`;
+                    addLog(`📄 Crawling: ${truncateUrl(data.url)} (depth: ${data.depth})`);
+                    break;
+                case 'captured':
+                    document.getElementById('apisCaptured').textContent = data.count;
+                    break;
+                case 'endpoints':
+                    renderEndpoints(data.data);
+                    break;
+                case 'complete':
+                    handleComplete(data);
+                    break;
+                case 'error':
+                    handleError(data.message);
+                    break;
+                case 'stopped':
+                    handleStopped();
+                    break;
+            }
+        }
+
+        function updateStatus(message) {
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.innerHTML = `<span class="loading">⏳</span><span>${message}</span>`;
+        }
+
+        function addLog(message) {
+            const log = document.getElementById('liveLog');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry animate-in';
+            entry.innerHTML = `<span class="time">[${time}]</span> ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function truncateUrl(url) {
+            return url.length > 50 ? url.substring(0, 50) + '...' : url;
+        }
+
+        function renderEndpoints(endpoints) {
+            const list = document.getElementById('endpointsList');
+            const empty = document.getElementById('emptyState');
+            
+            if (endpoints.length === 0) {
+                empty.style.display = 'block';
+                list.innerHTML = '';
+                return;
+            }
+
+            empty.style.display = 'none';
+            list.innerHTML = endpoints.map(ep => `
+                <div class="endpoint-item animate-in">
+                    <span class="endpoint-method method-${ep.method}">${ep.method}</span>
+                    <span class="endpoint-path">${ep.path}</span>
+                    <span class="endpoint-count">${ep.captured_count}x</span>
+                </div>
+            `).join('');
+        }
+
+        function handleComplete(data) {
+            clearInterval(timerInterval);
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.className = 'status-message success';
+            statusEl.innerHTML = `<span>✅</span><span>Complete! Found ${data.endpoints_found} endpoints in ${data.duration.toFixed(1)}s</span>`;
+            
+            document.getElementById('progressBar').style.width = '100%';
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').style.display = 'none';
+            document.getElementById('downloadButtons').style.display = 'flex';
+            
+            addLog(`✅ Crawl complete! ${data.pages_visited} pages, ${data.endpoints_found} endpoints`);
+        }
+
+        function handleError(message) {
+            clearInterval(timerInterval);
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.className = 'status-message error';
+            statusEl.innerHTML = `<span>❌</span><span>Error: ${message}</span>`;
+            
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').style.display = 'none';
+            
+            addLog(`❌ Error: ${message}`);
+        }
+
+        function handleStopped() {
+            clearInterval(timerInterval);
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.className = 'status-message';
+            statusEl.innerHTML = `<span>⏹️</span><span>Crawl stopped</span>`;
+            
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').style.display = 'none';
+            
+            addLog('⏹️ Crawl stopped by user');
+        }
+
+        // Form submission
+        document.getElementById('crawlForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = {
+                url: document.getElementById('url').value,
+                login_url: document.getElementById('loginUrl').value || null,
+                username: document.getElementById('username').value || null,
+                password: document.getElementById('password').value || null,
+                max_pages: parseInt(document.getElementById('maxPages').value),
+                max_depth: parseInt(document.getElementById('maxDepth').value),
+                wait_time: parseInt(document.getElementById('waitTime').value),
+                headless: document.getElementById('headless').checked,
+                auth_headers: {},
+                cookies: {},
+            };
+
+            // Parse auth header
+            const authHeader = document.getElementById('authHeader').value;
+            if (authHeader && authHeader.includes(':')) {
+                const [name, ...valueParts] = authHeader.split(':');
+                formData.auth_headers[name.trim()] = valueParts.join(':').trim();
+            }
+
+            // Parse cookies
+            const cookiesStr = document.getElementById('cookies').value;
+            if (cookiesStr) {
+                cookiesStr.split(';').forEach(cookie => {
+                    const [name, value] = cookie.split('=');
+                    if (name && value) {
+                        formData.cookies[name.trim()] = value.trim();
+                    }
+                });
+            }
+
+            // Start crawl
+            try {
+                const response = await fetch('/api/crawl', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(formData),
+                });
+
+                if (response.ok) {
+                    // Show progress section
+                    document.getElementById('progressSection').style.display = 'block';
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('stopBtn').style.display = 'block';
+                    document.getElementById('downloadButtons').style.display = 'none';
+                    document.getElementById('emptyState').style.display = 'block';
+                    document.getElementById('endpointsList').innerHTML = '';
+                    document.getElementById('liveLog').innerHTML = '';
+                    
+                    // Reset stats
+                    document.getElementById('pagesVisited').textContent = '0';
+                    document.getElementById('apisCaptured').textContent = '0';
+                    document.getElementById('progressBar').style.width = '0%';
+                    
+                    // Start timer
+                    startTime = Date.now();
+                    timerInterval = setInterval(() => {
+                        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                        document.getElementById('duration').textContent = `${elapsed}s`;
+                    }, 1000);
+                    
+                    addLog('🚀 Starting crawl...');
+                } else {
+                    const error = await response.json();
+                    alert(error.error || 'Failed to start crawl');
+                }
+            } catch (err) {
+                alert('Failed to connect to server');
+            }
+        });
+
+        // Stop button
+        document.getElementById('stopBtn').addEventListener('click', async () => {
+            await fetch('/api/stop', { method: 'POST' });
+        });
+
+        // Collapsible sections
+        function toggleCollapsible(id) {
+            document.getElementById(id).classList.toggle('open');
+        }
+
+        // Tabs
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
+            
+            document.getElementById('endpointsTab').style.display = tab === 'endpoints' ? 'block' : 'none';
+            document.getElementById('logTab').style.display = tab === 'log' ? 'block' : 'none';
+        }
+
+        // Download files
+        function downloadFile(type) {
+            const url = type === 'openapi' ? '/api/docs/openapi' : '/api/docs/markdown';
+            window.open(url, '_blank');
+        }
+
+        // Initialize
+        connectWebSocket();
+    </script>
+</body>
+</html>

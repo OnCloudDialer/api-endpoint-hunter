@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Project specific
+api-docs/
+*.log
+
+# Environment
+.env
+.env.local
+
+# Playwright
+playwright-report/
+test-results/
+
+# Distribution
+dist/
+build/
+*.egg-info/
