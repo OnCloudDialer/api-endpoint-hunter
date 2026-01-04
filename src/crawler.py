@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from collections import deque
 from datetime import datetime
-from typing import Set
+from pathlib import Path
+from typing import Set, Callable, Optional
 from urllib.parse import urljoin, urlparse
 
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
@@ -18,6 +20,9 @@ from .interceptor import APIInterceptor
 from .auth import AuthHandler
 
 console = Console()
+
+# Callback type for snapshot notifications
+SnapshotCallback = Callable[[str, str, int], None]  # (screenshot_path, url, page_num)
 
 
 class Crawler:
@@ -31,11 +36,53 @@ class Crawler:
         self.urls_to_visit: deque[tuple[str, int]] = deque()  # (url, depth)
         self.current_page_url: str = ""
         self.errors: list[str] = []
+        self.snapshots: list[dict] = []  # List of {path, url, page_num, timestamp}
+        self.snapshot_callback: Optional[SnapshotCallback] = None
+        
+        # Create snapshots directory
+        self.snapshots_dir = Path(config.output_dir) / "snapshots"
+        self.snapshots_dir.mkdir(parents=True, exist_ok=True)
         
         # Parse base domain for same-origin filtering
         parsed = urlparse(config.start_url)
         self.base_domain = parsed.netloc
         self.base_scheme = parsed.scheme
+    
+    def set_snapshot_callback(self, callback: SnapshotCallback):
+        """Set callback to be notified when snapshots are taken."""
+        self.snapshot_callback = callback
+    
+    async def _take_snapshot(self, page: Page, label: str = "") -> str:
+        """Take a screenshot of the current page state."""
+        page_num = len(self.visited_urls)
+        timestamp = datetime.now().strftime("%H%M%S")
+        safe_label = re.sub(r'[^\w\-]', '_', label)[:30] if label else ""
+        filename = f"page_{page_num:03d}_{timestamp}_{safe_label}.png"
+        filepath = self.snapshots_dir / filename
+        
+        try:
+            await page.screenshot(path=str(filepath), full_page=False)
+            
+            snapshot_info = {
+                "path": str(filepath),
+                "filename": filename,
+                "url": page.url,
+                "page_num": page_num,
+                "label": label,
+                "timestamp": datetime.now().isoformat(),
+            }
+            self.snapshots.append(snapshot_info)
+            
+            console.print(f"   [dim magenta]📸 Snapshot: {filename}[/]")
+            
+            # Notify callback if set
+            if self.snapshot_callback:
+                self.snapshot_callback(str(filepath), page.url, page_num)
+            
+            return str(filepath)
+        except Exception as e:
+            console.print(f"   [dim red]⚠ Snapshot failed: {e}[/]")
+            return ""
     
     def _is_same_origin(self, url: str) -> bool:
         """Check if URL is from the same origin."""
@@ -120,27 +167,94 @@ class Crawler:
     async def _interact_with_page(self, page: Page):
         """Interact with page elements to trigger API calls."""
         
-        # Click on interactive elements that might trigger API calls
+        # Track API count before interactions to see what triggers APIs
+        initial_api_count = len(self.interceptor.captured_endpoints)
+        
+        # 1. Click on LIST ITEMS - these often trigger detail API calls
+        list_item_selectors = [
+            # Table rows (common in admin panels, dashboards)
+            'table tbody tr',
+            'tr[data-id]', 'tr[data-row]', 'tr[onclick]',
+            # List items
+            'li[onclick]', 'li[data-id]', '.list-item', '.list-group-item',
+            # Cards (often clickable in modern UIs)
+            '.card[onclick]', '[class*="card"][data-id]', '.card-body[onclick]',
+            # Generic clickable items
+            '[data-id][onclick]', '[data-item]', '[data-record]',
+            # Links that look like list items
+            'a.list-item', 'a[class*="item"]',
+        ]
+        
+        clicked_items = set()  # Track what we've clicked to avoid duplicates
+        
+        for selector in list_item_selectors:
+            try:
+                elements = await page.query_selector_all(selector)
+                # Click first item, then check if 2nd item gives same API
+                items_to_click = elements[:2]  # First 2 items
+                
+                for i, elem in enumerate(items_to_click):
+                    try:
+                        is_visible = await elem.is_visible()
+                        if not is_visible:
+                            continue
+                        
+                        box = await elem.bounding_box()
+                        if not box or box["width"] <= 0 or box["height"] <= 0:
+                            continue
+                        
+                        # Get some identifier for this element
+                        elem_text = await elem.inner_text()
+                        elem_id = elem_text[:50] if elem_text else f"elem_{i}"
+                        
+                        if elem_id in clicked_items:
+                            continue
+                        clicked_items.add(elem_id)
+                        
+                        # Count APIs before click
+                        apis_before = len(self.interceptor.captured_endpoints)
+                        
+                        console.print(f"   [dim cyan]🖱️ Clicking: {elem_id[:40]}...[/]")
+                        await elem.click(timeout=3000)
+                        await asyncio.sleep(1)  # Wait for API response
+                        
+                        # Count APIs after click
+                        apis_after = len(self.interceptor.captured_endpoints)
+                        if apis_after > apis_before:
+                            console.print(f"   [dim green]   ✓ Triggered {apis_after - apis_before} API call(s)[/]")
+                            # Take snapshot after successful API trigger
+                            await self._take_snapshot(page, f"after_click_{elem_id[:20]}")
+                        
+                        # Go back if we navigated away
+                        if page.url != self.current_page_url:
+                            await page.go_back(timeout=5000)
+                            await asyncio.sleep(0.5)
+                        
+                    except Exception as e:
+                        pass  # Silent fail, continue to next element
+            except Exception:
+                pass
+        
+        # 2. Click on BUTTONS and INTERACTIVE ELEMENTS
         interactive_selectors = [
             'button:not([type="submit"])',
             '[role="button"]',
-            '[class*="expand"]',
-            '[class*="toggle"]',
-            '[class*="dropdown"]',
-            '[class*="accordion"]',
+            '[class*="expand"]', '[class*="toggle"]',
+            '[class*="dropdown"]', '[class*="accordion"]',
             '[class*="tab"]:not(.active)',
-            '[data-toggle]',
-            '[onclick]',
+            '[data-toggle]', '[onclick]',
+            # More specific triggers
+            '[class*="view"]', '[class*="detail"]', '[class*="open"]',
+            '[class*="edit"]', '[class*="show"]',
         ]
         
         for selector in interactive_selectors:
             try:
                 elements = await page.query_selector_all(selector)
-                for elem in elements[:3]:  # Limit to first 3 of each type
+                for elem in elements[:2]:  # Limit to first 2
                     try:
                         is_visible = await elem.is_visible()
                         if is_visible:
-                            # Check if it's in viewport
                             box = await elem.bounding_box()
                             if box and box["width"] > 0 and box["height"] > 0:
                                 await elem.click(timeout=2000)
@@ -150,7 +264,7 @@ class Crawler:
             except Exception:
                 pass
         
-        # Scroll to trigger lazy loading
+        # 3. Scroll to trigger LAZY LOADING
         try:
             await page.evaluate("""
                 async () => {
@@ -159,13 +273,19 @@ class Crawler:
                     const step = window.innerHeight;
                     for (let y = 0; y < height; y += step) {
                         window.scrollTo(0, y);
-                        await delay(200);
+                        await delay(300);
                     }
                     window.scrollTo(0, 0);
                 }
             """)
+            await asyncio.sleep(0.5)
         except Exception:
             pass
+        
+        # Log interaction results
+        final_api_count = len(self.interceptor.captured_endpoints)
+        if final_api_count > initial_api_count:
+            console.print(f"   [bold green]→ Interactions triggered {final_api_count - initial_api_count} new API call(s)[/]")
     
     async def _crawl_page(self, page: Page, url: str, depth: int) -> list[str]:
         """Crawl a single page and return discovered links."""
@@ -177,7 +297,7 @@ class Crawler:
         self.current_page_url = url
         
         console.print(f"\n[bold blue]📄 Page {len(self.visited_urls)}:[/] {url}")
-        console.print(f"   [dim]Depth: {depth}[/]")
+        console.print(f"   [dim]Depth: {depth}/{self.config.max_depth}[/]")
         
         try:
             # Navigate to page
@@ -194,8 +314,14 @@ class Crawler:
             except Exception:
                 pass  # May timeout, that's ok
             
+            # Take snapshot of the page
+            await self._take_snapshot(page, "initial")
+            
             # Interact with page to trigger more API calls
             await self._interact_with_page(page)
+            
+            # Take snapshot after interactions
+            await self._take_snapshot(page, "after_interactions")
             
             # Wait for any triggered requests to complete
             await asyncio.sleep(1)
@@ -203,7 +329,11 @@ class Crawler:
             # Extract links for further crawling
             if depth < self.config.max_depth:
                 links = await self._extract_links(page)
-                return [link for link in links if self._should_visit(link)]
+                valid_links = [link for link in links if self._should_visit(link)]
+                console.print(f"   [dim]Found {len(valid_links)} links to follow[/]")
+                return valid_links
+            else:
+                console.print(f"   [dim yellow]Max depth reached, not following links[/]")
             
             return []
             
@@ -211,6 +341,11 @@ class Crawler:
             error_msg = f"Error crawling {url}: {str(e)}"
             console.print(f"   [red]✗ {error_msg}[/]")
             self.errors.append(error_msg)
+            # Try to take error snapshot
+            try:
+                await self._take_snapshot(page, "error")
+            except:
+                pass
             return []
     
     async def crawl(self) -> CrawlResult:
@@ -280,6 +415,15 @@ class Crawler:
         console.print(f"\n[bold green]✓ Crawl complete![/]")
         console.print(f"  [dim]Pages visited: {len(self.visited_urls)}[/]")
         console.print(f"  [dim]API calls captured: {len(captured)}[/]")
+        console.print(f"  [dim]Snapshots taken: {len(self.snapshots)}[/]")
         console.print(f"  [dim]Duration: {result.duration_seconds:.1f}s[/]")
+        
+        # Save snapshot index
+        if self.snapshots:
+            import json
+            index_path = self.snapshots_dir / "index.json"
+            with open(index_path, "w") as f:
+                json.dump(self.snapshots, f, indent=2)
+            console.print(f"  [dim]Snapshots saved to: {self.snapshots_dir}[/]")
         
         return result, captured

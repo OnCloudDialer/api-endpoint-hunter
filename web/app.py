@@ -37,7 +37,12 @@ crawl_state = {
     "2fa_code": None,
     "2fa_event": None,
     "crawl_task": None,  # Track the background task
+    "snapshots": [],  # List of snapshot info
 }
+
+# Serve snapshots directory
+snapshots_dir = Path(__file__).parent.parent / "api-docs" / "snapshots"
+snapshots_dir.mkdir(parents=True, exist_ok=True)
 
 
 class CrawlRequest(BaseModel):
@@ -142,6 +147,29 @@ async def get_markdown_doc():
     if docs_path.exists():
         return FileResponse(docs_path, media_type="text/markdown")
     return JSONResponse({"error": "No documentation generated yet"}, status_code=404)
+
+
+# Snapshot endpoints
+@app.get("/api/snapshots")
+async def get_snapshots():
+    """Get list of all snapshots from current/last crawl."""
+    index_path = snapshots_dir / "index.json"
+    if index_path.exists():
+        with open(index_path) as f:
+            snapshots = json.load(f)
+        return {"snapshots": snapshots}
+    return {"snapshots": crawl_state.get("snapshots", [])}
+
+
+@app.get("/api/snapshots/{filename}")
+async def get_snapshot(filename: str):
+    """Get a specific snapshot image."""
+    # Sanitize filename to prevent directory traversal
+    safe_filename = Path(filename).name
+    filepath = snapshots_dir / safe_filename
+    if filepath.exists() and filepath.suffix.lower() in ('.png', '.jpg', '.jpeg'):
+        return FileResponse(filepath, media_type="image/png")
+    return JSONResponse({"error": "Snapshot not found"}, status_code=404)
 
 
 # Profile management endpoints
@@ -330,6 +358,28 @@ async def run_crawl(request: CrawlRequest):
         
         # Create crawler with custom logging
         crawler = Crawler(config)
+        
+        # Set up snapshot callback to send to UI
+        def snapshot_callback(path: str, url: str, page_num: int):
+            filename = Path(path).name
+            snapshot_info = {
+                "filename": filename,
+                "url": url,
+                "page_num": page_num,
+            }
+            crawl_state["snapshots"].append(snapshot_info)
+            # Note: Can't await in sync callback, but we can use asyncio.create_task
+            asyncio.create_task(broadcast({
+                "type": "snapshot",
+                "filename": filename,
+                "url": url,
+                "page_num": page_num,
+            }))
+        
+        crawler.set_snapshot_callback(snapshot_callback)
+        
+        # Clear previous snapshots
+        crawl_state["snapshots"] = []
         
         # Override the crawl to send updates
         original_crawl_page = crawler._crawl_page

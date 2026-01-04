@@ -103,6 +103,11 @@ class CapturedRequest(BaseModel):
     body: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.now)
     
+    # Extracted parameters for documentation
+    path_params: dict[str, Any] = Field(default_factory=dict)
+    query_params: dict[str, Any] = Field(default_factory=dict)
+    body_params: dict[str, Any] = Field(default_factory=dict)
+    
     @computed_field
     @property
     def parsed_url(self) -> dict:
@@ -127,6 +132,16 @@ class CapturedRequest(BaseModel):
         elif "xml" in ct:
             return ContentType.XML
         return ContentType.UNKNOWN
+    
+    @computed_field
+    @property
+    def all_params_summary(self) -> dict:
+        """Summary of all parameters for documentation."""
+        return {
+            "path": self.path_params,
+            "query": self.query_params,
+            "body": self.body_params,
+        }
 
 
 class CapturedResponse(BaseModel):
