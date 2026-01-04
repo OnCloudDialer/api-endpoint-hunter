@@ -67,23 +67,40 @@ connected_clients: list[WebSocket] = []
 
 async def broadcast(message: dict):
     """Send message to all connected clients."""
+    print(f"Broadcasting to {len(connected_clients)} clients: {message.get('type', 'unknown')}")
+    disconnected = []
     for client in connected_clients:
         try:
             await client.send_json(message)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Failed to send to client: {e}")
+            disconnected.append(client)
+    
+    # Remove disconnected clients
+    for client in disconnected:
+        if client in connected_clients:
+            connected_clients.remove(client)
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     connected_clients.append(websocket)
+    print(f"WebSocket connected. Total clients: {len(connected_clients)}")
     try:
         while True:
-            # Keep connection alive
-            await websocket.receive_text()
+            # Keep connection alive - use ping/pong or just wait for messages
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+            except asyncio.TimeoutError:
+                # Send a ping to keep the connection alive
+                await websocket.send_json({"type": "ping"})
     except WebSocketDisconnect:
-        connected_clients.remove(websocket)
+        pass
+    finally:
+        if websocket in connected_clients:
+            connected_clients.remove(websocket)
+        print(f"WebSocket disconnected. Total clients: {len(connected_clients)}")
 
 
 @app.get("/", response_class=HTMLResponse)
