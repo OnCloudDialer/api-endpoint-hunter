@@ -36,6 +36,7 @@ crawl_state = {
     "waiting_for_2fa": False,
     "2fa_code": None,
     "2fa_event": None,
+    "crawl_task": None,  # Track the background task
 }
 
 
@@ -163,23 +164,33 @@ async def get_profile(name: str):
 @app.post("/api/profiles")
 async def create_profile(request: SaveProfileRequest):
     """Save a new profile."""
-    config = CrawlConfig(
-        start_url=request.config.url,
-        login_url=request.config.login_url,
-        username=request.config.username,
-        password=request.config.password,
-        username_field=request.config.username_field,
-        password_field=request.config.password_field,
-        auth_headers=request.config.auth_headers,
-        cookies=request.config.cookies,
-        max_pages=request.config.max_pages,
-        max_depth=request.config.max_depth,
-        wait_time=request.config.wait_time,
-        headless=request.config.headless,
-    )
-    
-    save_profile(request.name, config, request.description)
-    return {"status": "saved", "name": request.name}
+    try:
+        # Validate
+        if not request.name or not request.name.strip():
+            return JSONResponse({"error": "Profile name is required"}, status_code=400)
+        
+        if not request.config.url:
+            return JSONResponse({"error": "URL is required"}, status_code=400)
+        
+        config = CrawlConfig(
+            start_url=request.config.url,
+            login_url=request.config.login_url,
+            username=request.config.username,
+            password=request.config.password,
+            username_field=request.config.username_field,
+            password_field=request.config.password_field,
+            auth_headers=request.config.auth_headers or {},
+            cookies=request.config.cookies or {},
+            max_pages=request.config.max_pages or 50,
+            max_depth=request.config.max_depth or 3,
+            wait_time=request.config.wait_time or 2000,
+            headless=request.config.headless if request.config.headless is not None else True,
+        )
+        
+        save_profile(request.name.strip(), config, request.description or "")
+        return {"status": "saved", "name": request.name.strip()}
+    except Exception as e:
+        return JSONResponse({"error": f"Failed to save profile: {str(e)}"}, status_code=500)
 
 
 @app.delete("/api/profiles/{name}")
@@ -197,14 +208,19 @@ async def start_crawl(request: CrawlRequest):
     if crawl_state["running"]:
         return JSONResponse({"error": "A crawl is already in progress"}, status_code=400)
     
+    # Validate URL
+    if not request.url or not request.url.startswith(('http://', 'https://')):
+        return JSONResponse({"error": "Invalid URL. Must start with http:// or https://"}, status_code=400)
+    
     # Reset state
     crawl_state["running"] = True
     crawl_state["progress"] = []
     crawl_state["result"] = None
     crawl_state["endpoints"] = []
     
-    # Start crawl in background
-    asyncio.create_task(run_crawl(request))
+    # Start crawl in background and track the task
+    task = asyncio.create_task(run_crawl(request))
+    crawl_state["crawl_task"] = task
     
     return {"status": "started"}
 
@@ -213,6 +229,17 @@ async def start_crawl(request: CrawlRequest):
 async def stop_crawl():
     """Stop the current crawl."""
     crawl_state["running"] = False
+    
+    # Cancel the task if it exists
+    task = crawl_state.get("crawl_task")
+    if task and not task.done():
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    
+    crawl_state["crawl_task"] = None
     await broadcast({"type": "stopped"})
     return {"status": "stopped"}
 
@@ -369,6 +396,8 @@ async def run_crawl(request: CrawlRequest):
             "duration": result.duration_seconds,
         })
         
+    except asyncio.CancelledError:
+        await broadcast({"type": "stopped"})
     except Exception as e:
         await broadcast({
             "type": "error",
@@ -376,6 +405,7 @@ async def run_crawl(request: CrawlRequest):
         })
     finally:
         crawl_state["running"] = False
+        crawl_state["crawl_task"] = None
 
 
 if __name__ == "__main__":

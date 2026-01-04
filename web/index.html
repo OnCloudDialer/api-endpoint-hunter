@@ -1135,6 +1135,8 @@
                     body: JSON.stringify(formData),
                 });
 
+                const result = await response.json();
+
                 if (response.ok) {
                     // Show progress section
                     document.getElementById('progressSection').style.display = 'block';
@@ -1144,6 +1146,11 @@
                     document.getElementById('emptyState').style.display = 'block';
                     document.getElementById('endpointsList').innerHTML = '';
                     document.getElementById('liveLog').innerHTML = '';
+                    
+                    // Reset status message
+                    const statusEl = document.getElementById('statusMessage');
+                    statusEl.className = 'status-message';
+                    statusEl.innerHTML = '<span class="loading">⏳</span><span>Initializing...</span>';
                     
                     // Reset stats
                     document.getElementById('pagesVisited').textContent = '0';
@@ -1159,11 +1166,10 @@
                     
                     addLog('🚀 Starting crawl...');
                 } else {
-                    const error = await response.json();
-                    alert(error.error || 'Failed to start crawl');
+                    alert(result.error || 'Failed to start crawl');
                 }
             } catch (err) {
-                alert('Failed to connect to server');
+                alert('Failed to connect to server: ' + err.message);
             }
         });
 
@@ -1347,8 +1353,9 @@
                 // Clear existing options except the first
                 select.innerHTML = '<option value="">— Select a saved profile —</option>';
                 
-                // Add profiles
-                data.profiles.forEach(profile => {
+                // Add profiles (check if profiles array exists)
+                const profiles = data.profiles || [];
+                profiles.forEach(profile => {
                     const option = document.createElement('option');
                     option.value = profile.name;
                     option.textContent = profile.name + (profile.description ? ` - ${profile.description}` : '');
