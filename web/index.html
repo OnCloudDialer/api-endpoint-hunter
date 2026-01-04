@@ -545,6 +545,110 @@
             animation: slideIn 0.3s ease forwards;
         }
 
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 2rem;
+            max-width: 420px;
+            width: 90%;
+            transform: scale(0.9);
+            transition: transform 0.3s ease;
+        }
+
+        .modal-overlay.active .modal {
+            transform: scale(1);
+        }
+
+        .modal-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--warning), #f97316);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            margin: 0 auto 1.5rem;
+            box-shadow: 0 8px 32px rgba(245, 158, 11, 0.3);
+        }
+
+        .modal h2 {
+            text-align: center;
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .modal p {
+            text-align: center;
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+
+        .code-input-group {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .code-input {
+            width: 50px;
+            height: 60px;
+            text-align: center;
+            font-size: 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+            background: var(--bg-tertiary);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            color: var(--text-primary);
+            transition: all 0.2s ease;
+        }
+
+        .code-input:focus {
+            outline: none;
+            border-color: var(--warning);
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+        }
+
+        .modal-timer {
+            text-align: center;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 1rem;
+        }
+
+        .modal-timer span {
+            color: var(--warning);
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
         /* Checkbox */
         .checkbox-group {
             display: flex;
@@ -597,6 +701,29 @@
     <div class="bg-grid"></div>
     <div class="bg-glow bg-glow-1"></div>
     <div class="bg-glow bg-glow-2"></div>
+
+    <!-- 2FA Modal -->
+    <div class="modal-overlay" id="twoFaModal">
+        <div class="modal">
+            <div class="modal-icon">🔐</div>
+            <h2>Two-Factor Authentication</h2>
+            <p>Enter the verification code from your authenticator app, SMS, or email</p>
+            <div class="code-input-group">
+                <input type="text" class="code-input" maxlength="1" data-index="0" inputmode="numeric">
+                <input type="text" class="code-input" maxlength="1" data-index="1" inputmode="numeric">
+                <input type="text" class="code-input" maxlength="1" data-index="2" inputmode="numeric">
+                <input type="text" class="code-input" maxlength="1" data-index="3" inputmode="numeric">
+                <input type="text" class="code-input" maxlength="1" data-index="4" inputmode="numeric">
+                <input type="text" class="code-input" maxlength="1" data-index="5" inputmode="numeric">
+            </div>
+            <button class="btn btn-primary btn-full" id="submit2fa" onclick="submit2FACode()">
+                ✓ Verify Code
+            </button>
+            <div class="modal-timer">
+                Time remaining: <span id="twoFaTimer">5:00</span>
+            </div>
+        </div>
+    </div>
 
     <div class="container">
         <header>
@@ -776,38 +903,6 @@
             };
         }
 
-        function handleMessage(data) {
-            const logEntry = createLogEntry(JSON.stringify(data));
-            
-            switch (data.type) {
-                case 'status':
-                    updateStatus(data.message);
-                    addLog(data.message);
-                    break;
-                case 'page':
-                    document.getElementById('pagesVisited').textContent = data.visited;
-                    const progress = (data.visited / data.max_pages) * 100;
-                    document.getElementById('progressBar').style.width = `${progress}%`;
-                    addLog(`📄 Crawling: ${truncateUrl(data.url)} (depth: ${data.depth})`);
-                    break;
-                case 'captured':
-                    document.getElementById('apisCaptured').textContent = data.count;
-                    break;
-                case 'endpoints':
-                    renderEndpoints(data.data);
-                    break;
-                case 'complete':
-                    handleComplete(data);
-                    break;
-                case 'error':
-                    handleError(data.message);
-                    break;
-                case 'stopped':
-                    handleStopped();
-                    break;
-            }
-        }
-
         function updateStatus(message) {
             const statusEl = document.getElementById('statusMessage');
             statusEl.innerHTML = `<span class="loading">⏳</span><span>${message}</span>`;
@@ -983,6 +1078,149 @@
         function downloadFile(type) {
             const url = type === 'openapi' ? '/api/docs/openapi' : '/api/docs/markdown';
             window.open(url, '_blank');
+        }
+
+        // 2FA Modal handling
+        let twoFaTimerInterval = null;
+
+        function show2FAModal() {
+            const modal = document.getElementById('twoFaModal');
+            modal.classList.add('active');
+            
+            // Clear inputs
+            document.querySelectorAll('.code-input').forEach(input => {
+                input.value = '';
+            });
+            
+            // Focus first input
+            document.querySelector('.code-input[data-index="0"]').focus();
+            
+            // Start countdown (5 minutes)
+            let remaining = 300;
+            document.getElementById('twoFaTimer').textContent = '5:00';
+            
+            twoFaTimerInterval = setInterval(() => {
+                remaining--;
+                const mins = Math.floor(remaining / 60);
+                const secs = remaining % 60;
+                document.getElementById('twoFaTimer').textContent = 
+                    `${mins}:${secs.toString().padStart(2, '0')}`;
+                
+                if (remaining <= 0) {
+                    clearInterval(twoFaTimerInterval);
+                    hide2FAModal();
+                }
+            }, 1000);
+            
+            addLog('🔐 2FA required - enter your verification code');
+        }
+
+        function hide2FAModal() {
+            const modal = document.getElementById('twoFaModal');
+            modal.classList.remove('active');
+            if (twoFaTimerInterval) {
+                clearInterval(twoFaTimerInterval);
+            }
+        }
+
+        async function submit2FACode() {
+            const inputs = document.querySelectorAll('.code-input');
+            let code = '';
+            inputs.forEach(input => code += input.value);
+            
+            if (code.length !== 6) {
+                alert('Please enter all 6 digits');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/2fa', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code }),
+                });
+                
+                if (response.ok) {
+                    hide2FAModal();
+                    addLog('✓ 2FA code submitted');
+                } else {
+                    const error = await response.json();
+                    alert(error.error || 'Failed to submit code');
+                }
+            } catch (err) {
+                alert('Failed to submit code');
+            }
+        }
+
+        // Code input handling - auto-advance and paste support
+        document.querySelectorAll('.code-input').forEach((input, index) => {
+            input.addEventListener('input', (e) => {
+                const value = e.target.value;
+                if (value && index < 5) {
+                    document.querySelector(`.code-input[data-index="${index + 1}"]`).focus();
+                }
+                
+                // Auto-submit when all filled
+                const allInputs = document.querySelectorAll('.code-input');
+                let fullCode = '';
+                allInputs.forEach(inp => fullCode += inp.value);
+                if (fullCode.length === 6) {
+                    submit2FACode();
+                }
+            });
+            
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !e.target.value && index > 0) {
+                    document.querySelector(`.code-input[data-index="${index - 1}"]`).focus();
+                }
+            });
+            
+            input.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const pasteData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+                document.querySelectorAll('.code-input').forEach((inp, i) => {
+                    inp.value = pasteData[i] || '';
+                });
+                if (pasteData.length === 6) {
+                    submit2FACode();
+                }
+            });
+        });
+
+        // Handle 2FA message from WebSocket
+        function handleMessage(data) {
+            const logEntry = createLogEntry(JSON.stringify(data));
+            
+            switch (data.type) {
+                case 'status':
+                    updateStatus(data.message);
+                    addLog(data.message);
+                    break;
+                case 'page':
+                    document.getElementById('pagesVisited').textContent = data.visited;
+                    const progress = (data.visited / data.max_pages) * 100;
+                    document.getElementById('progressBar').style.width = `${progress}%`;
+                    addLog(`📄 Crawling: ${truncateUrl(data.url)} (depth: ${data.depth})`);
+                    break;
+                case 'captured':
+                    document.getElementById('apisCaptured').textContent = data.count;
+                    break;
+                case 'endpoints':
+                    renderEndpoints(data.data);
+                    break;
+                case 'complete':
+                    handleComplete(data);
+                    break;
+                case 'error':
+                    handleError(data.message);
+                    break;
+                case 'stopped':
+                    handleStopped();
+                    break;
+                case '2fa_required':
+                    show2FAModal();
+                    break;
+            }
         }
 
         // Initialize

@@ -22,6 +22,7 @@ from src.models import CrawlConfig
 from src.crawler import Crawler
 from src.analyzer import EndpointAnalyzer
 from src.generator import DocumentationWriter, MarkdownGenerator, OpenAPIGenerator
+from src.auth import set_2fa_callback
 
 app = FastAPI(title="API Endpoint Hunter")
 
@@ -31,6 +32,9 @@ crawl_state = {
     "progress": [],
     "result": None,
     "endpoints": [],
+    "waiting_for_2fa": False,
+    "2fa_code": None,
+    "2fa_event": None,
 }
 
 
@@ -141,10 +145,53 @@ async def stop_crawl():
     return {"status": "stopped"}
 
 
+class TwoFACode(BaseModel):
+    code: str
+
+
+@app.post("/api/2fa")
+async def submit_2fa_code(data: TwoFACode):
+    """Submit a 2FA code."""
+    if not crawl_state["waiting_for_2fa"]:
+        return JSONResponse({"error": "Not waiting for 2FA code"}, status_code=400)
+    
+    crawl_state["2fa_code"] = data.code
+    if crawl_state["2fa_event"]:
+        crawl_state["2fa_event"].set()
+    
+    return {"status": "submitted"}
+
+
+async def request_2fa_code(prompt: str) -> str:
+    """Request 2FA code from the web interface."""
+    crawl_state["waiting_for_2fa"] = True
+    crawl_state["2fa_code"] = None
+    crawl_state["2fa_event"] = asyncio.Event()
+    
+    # Notify clients that 2FA is needed
+    await broadcast({
+        "type": "2fa_required",
+        "prompt": prompt,
+    })
+    
+    # Wait for code (with timeout)
+    try:
+        await asyncio.wait_for(crawl_state["2fa_event"].wait(), timeout=300)  # 5 min timeout
+    except asyncio.TimeoutError:
+        crawl_state["waiting_for_2fa"] = False
+        return ""
+    
+    crawl_state["waiting_for_2fa"] = False
+    return crawl_state["2fa_code"] or ""
+
+
 async def run_crawl(request: CrawlRequest):
     """Execute the crawl and send updates via WebSocket."""
     try:
         await broadcast({"type": "status", "message": "🚀 Starting crawl...", "phase": "init"})
+        
+        # Set up 2FA callback for web interface
+        set_2fa_callback(request_2fa_code)
         
         # Build config
         config = CrawlConfig(
