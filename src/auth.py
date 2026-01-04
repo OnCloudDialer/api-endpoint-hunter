@@ -164,17 +164,36 @@ class AuthHandler:
                 console.print("[green]✓[/] 2FA verification successful")
                 
                 # Wait for redirect after 2FA
-                await asyncio.sleep(2)
+                await asyncio.sleep(3)
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=10000)
+                    await page.wait_for_load_state("networkidle", timeout=15000)
                 except Exception:
                     pass
+            
+            # IMPORTANT: Navigate to start URL to verify login worked
+            console.print("[cyan]  Verifying authentication by navigating to target...[/]")
+            await page.goto(self.config.start_url, wait_until="domcontentloaded", timeout=30000)
+            await asyncio.sleep(2)
+            
+            try:
+                await page.wait_for_load_state("networkidle", timeout=10000)
+            except Exception:
+                pass
+            
+            # Check if we were redirected back to login (auth failed)
+            current_url = page.url.lower()
+            if "login" in current_url or "signin" in current_url or "auth" in current_url:
+                console.print("[red]✗[/] Authentication failed - redirected back to login page")
+                console.print(f"  [dim]Current URL: {page.url}[/]")
+                return False
             
             # Check for logged-in indicators
             logged_in_selectors = [
                 "[class*='logout']", "[class*='signout']",
                 "[href*='logout']", "[href*='signout']",
                 ".user-menu", ".profile-menu", ".account-menu",
+                "[class*='user-name']", "[class*='username']",
+                "[class*='avatar']", "[class*='profile']",
             ]
             
             for selector in logged_in_selectors:
@@ -186,7 +205,13 @@ class AuthHandler:
                 except Exception:
                     pass
             
+            # If we're on the start URL and not redirected to login, probably successful
+            if self.config.start_url.rstrip('/') in page.url:
+                console.print("[green]✓[/] Login successful (on target page)")
+                return True
+            
             console.print("[yellow]?[/] Login status unclear, continuing anyway")
+            console.print(f"  [dim]Current URL: {page.url}[/]")
             return True
             
         except Exception as e:
@@ -255,6 +280,13 @@ class AuthHandler:
     
     async def _find_2fa_input(self, page: Page) -> Optional[str]:
         """Find the 2FA code input field."""
+        
+        # Skip these - they are NOT 2FA fields
+        skip_patterns = [
+            "user", "email", "login", "password", "pass", "pwd", 
+            "username", "account", "id", "name"
+        ]
+        
         selectors = [
             'input[autocomplete="one-time-code"]',
             'input[name*="otp"]',
@@ -264,11 +296,12 @@ class AuthHandler:
             'input[name*="code"]',
             'input[name*="token"]',
             'input[name*="verification"]',
+            'input[name*="pin"]',
             'input[inputmode="numeric"]',
             'input[maxlength="6"]',
+            'input[maxlength="4"]',
             'input[type="tel"]',
             'input[type="number"]',
-            'input[type="text"]',
         ]
         
         for selector in selectors:
@@ -276,17 +309,61 @@ class AuthHandler:
                 elems = await page.query_selector_all(selector)
                 for elem in elems:
                     is_visible = await elem.is_visible()
-                    if is_visible:
-                        # Get more specific selector
-                        elem_id = await elem.get_attribute("id")
-                        elem_name = await elem.get_attribute("name")
-                        if elem_id:
-                            return f'#{elem_id}'
-                        elif elem_name:
-                            return f'input[name="{elem_name}"]'
-                        return selector
+                    if not is_visible:
+                        continue
+                    
+                    # Get element attributes
+                    elem_id = await elem.get_attribute("id") or ""
+                    elem_name = await elem.get_attribute("name") or ""
+                    elem_type = await elem.get_attribute("type") or ""
+                    elem_placeholder = await elem.get_attribute("placeholder") or ""
+                    
+                    # Skip if this looks like a username/password field
+                    all_attrs = f"{elem_id} {elem_name} {elem_placeholder}".lower()
+                    if any(skip in all_attrs for skip in skip_patterns):
+                        continue
+                    
+                    # Skip password fields
+                    if elem_type == "password":
+                        continue
+                    
+                    # Found a valid 2FA input
+                    if elem_id:
+                        console.print(f"  [dim]Found 2FA field: #{elem_id}[/]")
+                        return f'#{elem_id}'
+                    elif elem_name:
+                        console.print(f"  [dim]Found 2FA field: input[name="{elem_name}"][/]")
+                        return f'input[name="{elem_name}"]'
+                    return selector
             except Exception:
                 pass
+        
+        # Fallback: look for any visible text input that's not username/password
+        try:
+            inputs = await page.query_selector_all('input[type="text"], input:not([type])')
+            for inp in inputs:
+                is_visible = await inp.is_visible()
+                if not is_visible:
+                    continue
+                
+                elem_id = await inp.get_attribute("id") or ""
+                elem_name = await inp.get_attribute("name") or ""
+                elem_placeholder = await inp.get_attribute("placeholder") or ""
+                
+                all_attrs = f"{elem_id} {elem_name} {elem_placeholder}".lower()
+                
+                # Must not be a username/password field
+                if any(skip in all_attrs for skip in skip_patterns):
+                    continue
+                
+                # If placeholder mentions code/verification, good sign
+                if any(kw in all_attrs for kw in ["code", "verification", "otp", "2fa", "pin", "digit"]):
+                    if elem_id:
+                        return f'#{elem_id}'
+                    elif elem_name:
+                        return f'input[name="{elem_name}"]'
+        except Exception:
+            pass
         
         return None
     
