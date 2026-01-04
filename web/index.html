@@ -727,6 +727,50 @@
             flex: 1;
         }
 
+        /* Toast notifications */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .toast {
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.3s ease;
+            max-width: 350px;
+        }
+
+        .toast.success {
+            border-color: var(--success);
+            background: rgba(34, 197, 94, 0.1);
+        }
+
+        .toast.error {
+            border-color: var(--error);
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
         /* Checkbox */
         .checkbox-group {
             display: flex;
@@ -779,6 +823,9 @@
     <div class="bg-grid"></div>
     <div class="bg-glow bg-glow-1"></div>
     <div class="bg-glow bg-glow-2"></div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
 
     <!-- Save Profile Modal -->
     <div class="modal-overlay save-modal" id="saveProfileModal">
@@ -996,6 +1043,21 @@
     </div>
 
     <script>
+        // Toast notification function (replaces alert)
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            
+            // Auto-remove after 4 seconds
+            setTimeout(() => {
+                toast.style.animation = 'slideIn 0.3s ease reverse';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
         // WebSocket connection
         let ws = null;
         let startTime = null;
@@ -1166,10 +1228,10 @@
                     
                     addLog('🚀 Starting crawl...');
                 } else {
-                    alert(result.error || 'Failed to start crawl');
+                    showToast(result.error || 'Failed to start crawl', 'error');
                 }
             } catch (err) {
-                alert('Failed to connect to server: ' + err.message);
+                showToast('Failed to connect to server: ' + err.message, 'error');
             }
         });
 
@@ -1247,7 +1309,7 @@
             inputs.forEach(input => code += input.value);
             
             if (code.length !== 6) {
-                alert('Please enter all 6 digits');
+                showToast('Please enter all 6 digits', 'error');
                 return;
             }
             
@@ -1263,10 +1325,10 @@
                     addLog('✓ 2FA code submitted');
                 } else {
                     const error = await response.json();
-                    alert(error.error || 'Failed to submit code');
+                    showToast(error.error || 'Failed to submit code', 'error');
                 }
             } catch (err) {
-                alert('Failed to submit code');
+                showToast('Failed to submit code', 'error');
             }
         }
 
@@ -1417,7 +1479,7 @@
                     addLog(`📁 Loaded profile: ${name}`);
                 }
             } catch (err) {
-                alert('Failed to load profile');
+                showToast('Failed to load profile', 'error');
             }
         }
 
@@ -1437,7 +1499,7 @@
             const description = document.getElementById('profileDescription').value.trim();
             
             if (!name) {
-                alert('Please enter a profile name');
+                showToast('Please enter a profile name', 'error');
                 return;
             }
             
@@ -1487,12 +1549,13 @@
                     currentProfileName = name;
                     document.getElementById('deleteProfileBtn').style.display = 'flex';
                     addLog(`💾 Profile saved: ${name}`);
+                    showToast(`Profile "${name}" saved successfully!`, 'success');
                 } else {
                     const error = await response.json();
-                    alert(error.error || 'Failed to save profile');
+                    showToast(error.error || 'Failed to save profile', 'error');
                 }
             } catch (err) {
-                alert('Failed to save profile');
+                showToast('Failed to save profile', 'error');
             }
         }
 
@@ -1515,10 +1578,10 @@
                     document.getElementById('deleteProfileBtn').style.display = 'none';
                     await loadProfiles();
                 } else {
-                    alert('Failed to delete profile');
+                    showToast('Failed to delete profile', 'error');
                 }
             } catch (err) {
-                alert('Failed to delete profile');
+                showToast('Failed to delete profile', 'error');
             }
         }
 
