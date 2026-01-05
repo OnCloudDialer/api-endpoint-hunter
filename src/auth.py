@@ -281,30 +281,51 @@ class AuthHandler:
     async def _find_2fa_input(self, page: Page) -> Optional[str]:
         """Find the 2FA code input field."""
         
-        # Skip these - they are NOT 2FA fields
-        skip_patterns = [
-            "user", "email", "login", "password", "pass", "pwd", 
-            "username", "account", "id", "name"
-        ]
+        # Definitely skip these - username/password fields
+        skip_exact = ["user-id", "userid", "username", "email", "login", "password", "pass", "pwd"]
         
-        selectors = [
+        # First pass: Look for very specific 2FA selectors (high confidence)
+        high_confidence_selectors = [
             'input[autocomplete="one-time-code"]',
             'input[name*="otp"]',
             'input[name*="totp"]',
             'input[name*="2fa"]',
             'input[name*="mfa"]',
-            'input[name*="code"]',
-            'input[name*="token"]',
             'input[name*="verification"]',
-            'input[name*="pin"]',
+            'input[name*="authenticator"]',
+        ]
+        
+        for selector in high_confidence_selectors:
+            try:
+                elem = await page.query_selector(selector)
+                if elem:
+                    is_visible = await elem.is_visible()
+                    if is_visible:
+                        elem_id = await elem.get_attribute("id") or ""
+                        elem_name = await elem.get_attribute("name") or ""
+                        if elem_id:
+                            console.print(f"  [dim]Found 2FA field (high confidence): #{elem_id}[/]")
+                            return f'#{elem_id}'
+                        elif elem_name:
+                            console.print(f'  [dim]Found 2FA field (high confidence): input[name="{elem_name}"][/]')
+                            return f'input[name="{elem_name}"]'
+                        return selector
+            except Exception:
+                pass
+        
+        # Second pass: Look for numeric inputs that could be 2FA
+        numeric_selectors = [
             'input[inputmode="numeric"]',
             'input[maxlength="6"]',
             'input[maxlength="4"]',
             'input[type="tel"]',
             'input[type="number"]',
+            'input[name*="code"]',
+            'input[name*="token"]',
+            'input[name*="pin"]',
         ]
         
-        for selector in selectors:
+        for selector in numeric_selectors:
             try:
                 elems = await page.query_selector_all(selector)
                 for elem in elems:
@@ -312,22 +333,21 @@ class AuthHandler:
                     if not is_visible:
                         continue
                     
-                    # Get element attributes
                     elem_id = await elem.get_attribute("id") or ""
                     elem_name = await elem.get_attribute("name") or ""
                     elem_type = await elem.get_attribute("type") or ""
-                    elem_placeholder = await elem.get_attribute("placeholder") or ""
-                    
-                    # Skip if this looks like a username/password field
-                    all_attrs = f"{elem_id} {elem_name} {elem_placeholder}".lower()
-                    if any(skip in all_attrs for skip in skip_patterns):
-                        continue
                     
                     # Skip password fields
                     if elem_type == "password":
                         continue
                     
-                    # Found a valid 2FA input
+                    # Skip exact matches for username fields
+                    id_lower = elem_id.lower()
+                    name_lower = elem_name.lower()
+                    if id_lower in skip_exact or name_lower in skip_exact:
+                        console.print(f"  [dim]Skipping field (looks like username): {elem_id or elem_name}[/]")
+                        continue
+                    
                     if elem_id:
                         console.print(f"  [dim]Found 2FA field: #{elem_id}[/]")
                         return f'#{elem_id}'
@@ -338,7 +358,8 @@ class AuthHandler:
             except Exception:
                 pass
         
-        # Fallback: look for any visible text input that's not username/password
+        # Third pass: Any visible text input that's not obviously username/password
+        console.print("  [dim]Searching for any suitable input field...[/]")
         try:
             inputs = await page.query_selector_all('input[type="text"], input:not([type])')
             for inp in inputs:
@@ -348,22 +369,32 @@ class AuthHandler:
                 
                 elem_id = await inp.get_attribute("id") or ""
                 elem_name = await inp.get_attribute("name") or ""
+                elem_type = await inp.get_attribute("type") or ""
                 elem_placeholder = await inp.get_attribute("placeholder") or ""
                 
-                all_attrs = f"{elem_id} {elem_name} {elem_placeholder}".lower()
-                
-                # Must not be a username/password field
-                if any(skip in all_attrs for skip in skip_patterns):
+                # Skip password fields
+                if elem_type == "password":
                     continue
                 
-                # If placeholder mentions code/verification, good sign
-                if any(kw in all_attrs for kw in ["code", "verification", "otp", "2fa", "pin", "digit"]):
-                    if elem_id:
-                        return f'#{elem_id}'
-                    elif elem_name:
-                        return f'input[name="{elem_name}"]'
-        except Exception:
-            pass
+                # Skip exact matches for username fields
+                id_lower = elem_id.lower()
+                name_lower = elem_name.lower()
+                if id_lower in skip_exact or name_lower in skip_exact:
+                    continue
+                
+                # Skip if placeholder clearly indicates username/email
+                placeholder_lower = elem_placeholder.lower()
+                if any(x in placeholder_lower for x in ["email", "username", "user name", "login"]):
+                    continue
+                
+                console.print(f"  [dim]Found potential 2FA field: id={elem_id}, name={elem_name}, placeholder={elem_placeholder}[/]")
+                
+                if elem_id:
+                    return f'#{elem_id}'
+                elif elem_name:
+                    return f'input[name="{elem_name}"]'
+        except Exception as e:
+            console.print(f"  [dim]Error searching inputs: {e}[/]")
         
         return None
     
