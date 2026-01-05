@@ -278,11 +278,13 @@ class AuthHandler:
         
         return False
     
-    async def _find_2fa_input(self, page: Page) -> Optional[str]:
-        """Find the 2FA code input field."""
+    async def _find_2fa_input(self, page: Page):
+        """Find the 2FA code input field. Returns (selector_or_element, is_element_handle)."""
+        from playwright.async_api import ElementHandle
         
         # Definitely skip these - username/password fields
         skip_exact = ["user-id", "userid", "username", "email", "login", "password", "pass", "pwd"]
+        skip_placeholders = ["email", "username", "user name", "user id", "login", "password"]
         
         # First pass: Look for very specific 2FA selectors (high confidence)
         high_confidence_selectors = [
@@ -301,15 +303,8 @@ class AuthHandler:
                 if elem:
                     is_visible = await elem.is_visible()
                     if is_visible:
-                        elem_id = await elem.get_attribute("id") or ""
-                        elem_name = await elem.get_attribute("name") or ""
-                        if elem_id:
-                            console.print(f"  [dim]Found 2FA field (high confidence): #{elem_id}[/]")
-                            return f'#{elem_id}'
-                        elif elem_name:
-                            console.print(f'  [dim]Found 2FA field (high confidence): input[name="{elem_name}"][/]')
-                            return f'input[name="{elem_name}"]'
-                        return selector
+                        console.print(f"  [dim]Found 2FA field (high confidence): {selector}[/]")
+                        return (selector, False)
             except Exception:
                 pass
         
@@ -348,13 +343,8 @@ class AuthHandler:
                         console.print(f"  [dim]Skipping field (looks like username): {elem_id or elem_name}[/]")
                         continue
                     
-                    if elem_id:
-                        console.print(f"  [dim]Found 2FA field: #{elem_id}[/]")
-                        return f'#{elem_id}'
-                    elif elem_name:
-                        console.print(f'  [dim]Found 2FA field: input[name="{elem_name}"][/]')
-                        return f'input[name="{elem_name}"]'
-                    return selector
+                    console.print(f"  [dim]Found 2FA field (numeric): {selector}[/]")
+                    return (selector, False)
             except Exception:
                 pass
         
@@ -362,6 +352,7 @@ class AuthHandler:
         console.print("  [dim]Searching for any suitable input field...[/]")
         try:
             inputs = await page.query_selector_all('input[type="text"], input:not([type])')
+            idx = 0
             for inp in inputs:
                 is_visible = await inp.is_visible()
                 if not is_visible:
@@ -380,34 +371,47 @@ class AuthHandler:
                 id_lower = elem_id.lower()
                 name_lower = elem_name.lower()
                 if id_lower in skip_exact or name_lower in skip_exact:
+                    idx += 1
                     continue
                 
                 # Skip if placeholder clearly indicates username/email
                 placeholder_lower = elem_placeholder.lower()
-                if any(x in placeholder_lower for x in ["email", "username", "user name", "login"]):
+                if any(x in placeholder_lower for x in skip_placeholders):
+                    idx += 1
                     continue
                 
                 console.print(f"  [dim]Found potential 2FA field: id={elem_id}, name={elem_name}, placeholder={elem_placeholder}[/]")
                 
+                # If we have an id or name, use selector
                 if elem_id:
-                    return f'#{elem_id}'
+                    return (f'#{elem_id}', False)
                 elif elem_name:
-                    return f'input[name="{elem_name}"]'
+                    return (f'input[name="{elem_name}"]', False)
+                
+                # No id/name - return the element handle directly
+                console.print(f"  [dim]Using element handle (no id/name available)[/]")
+                return (inp, True)
+                
         except Exception as e:
             console.print(f"  [dim]Error searching inputs: {e}[/]")
         
-        return None
+        return (None, False)
     
     async def _handle_2fa(self, page: Page, max_attempts: int = 3) -> bool:
         """Handle 2FA code entry."""
         global _2fa_callback
         
-        input_selector = await self._find_2fa_input(page)
-        if not input_selector:
+        result = await self._find_2fa_input(page)
+        input_target, is_element = result
+        
+        if not input_target:
             console.print("[red]✗[/] Could not find 2FA input field")
             return False
         
-        console.print(f"  [dim]2FA input field: {input_selector}[/]")
+        if is_element:
+            console.print(f"  [dim]2FA input field: (element handle)[/]")
+        else:
+            console.print(f"  [dim]2FA input field: {input_target}[/]")
         
         for attempt in range(max_attempts):
             # Get the 2FA code
@@ -431,15 +435,28 @@ class AuthHandler:
             
             # Enter the code
             try:
-                await page.fill(input_selector, code)
-                await asyncio.sleep(0.5)
-                
-                # Try to submit
-                submit_selector = await self._find_2fa_submit(page)
-                if submit_selector:
-                    await page.click(submit_selector)
+                if is_element:
+                    # Use element handle directly
+                    await input_target.fill(code)
+                    await asyncio.sleep(0.5)
+                    
+                    # Try to submit
+                    submit_selector = await self._find_2fa_submit(page)
+                    if submit_selector:
+                        await page.click(submit_selector)
+                    else:
+                        await input_target.press("Enter")
                 else:
-                    await page.press(input_selector, "Enter")
+                    # Use selector
+                    await page.fill(input_target, code)
+                    await asyncio.sleep(0.5)
+                    
+                    # Try to submit
+                    submit_selector = await self._find_2fa_submit(page)
+                    if submit_selector:
+                        await page.click(submit_selector)
+                    else:
+                        await page.press(input_target, "Enter")
                 
                 # Wait for response
                 await asyncio.sleep(2)
@@ -461,7 +478,10 @@ class AuthHandler:
                     
                     # Clear the input for retry
                     try:
-                        await page.fill(input_selector, "")
+                        if is_element:
+                            await input_target.fill("")
+                        else:
+                            await page.fill(input_target, "")
                     except Exception:
                         pass
                 else:
