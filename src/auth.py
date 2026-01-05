@@ -332,7 +332,7 @@ class AuthHandler:
                         console.print(f"  [dim]Found 2FA field: #{elem_id}[/]")
                         return f'#{elem_id}'
                     elif elem_name:
-                        console.print(f"  [dim]Found 2FA field: input[name="{elem_name}"][/]")
+                        console.print(f'  [dim]Found 2FA field: input[name="{elem_name}"][/]')
                         return f'input[name="{elem_name}"]'
                     return selector
             except Exception:
