@@ -591,10 +591,36 @@
             border-top: 1px solid var(--border-color);
         }
 
-        .download-buttons .btn {
+        .download-buttons .btn-group {
+            display: flex;
             flex: 1;
+        }
+
+        .download-buttons .btn-group .btn:first-child {
+            flex: 1;
+            border-radius: 8px 0 0 8px;
+        }
+
+        .download-buttons .btn-group .btn:last-child {
+            border-radius: 0 8px 8px 0;
+            padding: 0.75rem 1rem;
+            border-left: 1px solid var(--border-color);
+        }
+
+        .download-buttons .btn {
             padding: 0.75rem;
             font-size: 0.85rem;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+
+        .btn-outline:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
         }
 
         /* Live log */
@@ -1152,12 +1178,22 @@
                 </div>
 
                 <div class="download-buttons" id="downloadButtons" style="display: none;">
-                    <button class="btn btn-secondary" onclick="downloadFile('openapi')">
-                        📄 OpenAPI Spec
-                    </button>
-                    <button class="btn btn-secondary" onclick="downloadFile('markdown')">
-                        📝 Markdown Docs
-                    </button>
+                    <div class="btn-group">
+                        <button class="btn btn-secondary" onclick="downloadFile('openapi')" title="Download">
+                            ⬇️ OpenAPI Spec
+                        </button>
+                        <button class="btn btn-outline" onclick="viewFile('openapi')" title="View in browser">
+                            👁️
+                        </button>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-secondary" onclick="downloadFile('markdown')" title="Download">
+                            ⬇️ Markdown Docs
+                        </button>
+                        <button class="btn btn-outline" onclick="viewFile('markdown')" title="View in browser">
+                            👁️
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1418,6 +1454,23 @@
 
         // Download files
         function downloadFile(type) {
+            const url = type === 'openapi' ? '/api/docs/openapi?download=1' : '/api/docs/markdown?download=1';
+            const filename = type === 'openapi' ? 'openapi.yaml' : 'api-docs.md';
+            
+            fetch(url)
+                .then(response => response.blob())
+                .then(blob => {
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = filename;
+                    link.click();
+                    URL.revokeObjectURL(link.href);
+                })
+                .catch(err => showToast('Failed to download: ' + err.message, 'error'));
+        }
+        
+        // View files in new tab
+        function viewFile(type) {
             const url = type === 'openapi' ? '/api/docs/openapi' : '/api/docs/markdown';
             window.open(url, '_blank');
         }

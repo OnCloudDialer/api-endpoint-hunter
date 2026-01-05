@@ -533,22 +533,26 @@ class AuthHandler:
                     # Use element handle directly
                     await input_target.fill(code)
                     await asyncio.sleep(0.5)
-                    
-                    # Try to submit
-                    submit_selector = await self._find_2fa_submit(page)
-                    if submit_selector:
-                        await page.click(submit_selector)
-                    else:
-                        await input_target.press("Enter")
                 else:
                     # Use selector
                     await page.fill(input_target, code)
                     await asyncio.sleep(0.5)
-                    
-                    # Try to submit
-                    submit_selector = await self._find_2fa_submit(page)
-                    if submit_selector:
-                        await page.click(submit_selector)
+                
+                # Try to submit - find and click the Verify button
+                submit_result = await self._find_2fa_submit(page)
+                submit_target, submit_is_element = submit_result
+                
+                if submit_target:
+                    if submit_is_element:
+                        await submit_target.click()
+                    else:
+                        await page.click(submit_target)
+                    console.print("  [dim]Clicked submit button[/]")
+                else:
+                    # Fallback to pressing Enter
+                    console.print("  [dim]No submit button found, pressing Enter[/]")
+                    if is_element:
+                        await input_target.press("Enter")
                     else:
                         await page.press(input_target, "Enter")
                 
@@ -587,52 +591,68 @@ class AuthHandler:
         
         return False
     
-    async def _find_2fa_submit(self, page: Page) -> Optional[str]:
-        """Find the 2FA submit button."""
-        # Prioritize buttons in modals/dialogs with verification text
-        modal_button_selectors = [
-            '[role="dialog"] button:has-text("Verify")',
-            '[class*="modal"] button:has-text("Verify")',
-            '[class*="dialog"] button:has-text("Verify")',
-            'button:has-text("Verify")',
-            '[role="dialog"] button[type="submit"]',
-            '[class*="modal"] button[type="submit"]',
-        ]
+    async def _find_2fa_submit(self, page: Page):
+        """Find the 2FA submit button. Returns (selector_or_element, is_element_handle)."""
         
-        for selector in modal_button_selectors:
-            try:
-                elem = await page.query_selector(selector)
-                if elem:
-                    is_visible = await elem.is_visible()
-                    if is_visible:
-                        text = await elem.text_content()
-                        console.print(f"  [dim]Found 2FA submit button: {text}[/]")
-                        return selector
-            except Exception:
-                pass
-        
-        # Fallback to generic selectors
-        selectors = [
-            'button[type="submit"]',
+        # Look for ANY clickable element with verify/submit text
+        # This includes button, a, input, div, span with click handlers
+        clickable_selectors = [
+            'button',
             'input[type="submit"]',
-            'button:has-text("Submit")',
-            'button:has-text("Continue")',
-            'button:has-text("Confirm")',
-            '[class*="submit"]',
-            '[class*="verify"]',
+            'input[type="button"]',
+            'a',
+            '[role="button"]',
+            '[onclick]',
+            '.btn',
+            '[class*="button"]',
+            '[class*="btn"]',
         ]
         
-        for selector in selectors:
-            try:
-                elem = await page.query_selector(selector)
-                if elem:
-                    is_visible = await elem.is_visible()
-                    if is_visible:
-                        return selector
-            except Exception:
-                pass
+        submit_texts = ['verify', 'submit', 'confirm', 'continue', 'ok', 'send']
         
-        return None
+        for selector in clickable_selectors:
+            try:
+                elements = await page.query_selector_all(selector)
+                for elem in elements:
+                    try:
+                        is_visible = await elem.is_visible()
+                        if not is_visible:
+                            continue
+                        
+                        text = await elem.text_content()
+                        if text:
+                            text_clean = text.strip().lower()
+                            # Check if any submit text is in the element text
+                            for submit_text in submit_texts:
+                                if submit_text in text_clean and len(text_clean) < 30:  # Avoid matching large elements
+                                    console.print(f"  [dim]Found 2FA submit: '{text.strip()}' ({selector})[/]")
+                                    return (elem, True)
+                        
+                        # Also check value attribute for inputs
+                        value = await elem.get_attribute('value')
+                        if value:
+                            value_lower = value.strip().lower()
+                            for submit_text in submit_texts:
+                                if submit_text in value_lower:
+                                    console.print(f"  [dim]Found 2FA submit by value: '{value}' ({selector})[/]")
+                                    return (elem, True)
+                    except Exception:
+                        continue
+            except Exception as e:
+                console.print(f"  [dim]Error with selector {selector}: {e}[/]")
+        
+        # Last resort: try Playwright's text selector
+        try:
+            verify_btn = await page.query_selector('text=Verify')
+            if verify_btn:
+                is_visible = await verify_btn.is_visible()
+                if is_visible:
+                    console.print(f"  [dim]Found 2FA submit via text selector[/]")
+                    return (verify_btn, True)
+        except Exception:
+            pass
+        
+        return (None, False)
     
     async def _check_2fa_error(self, page: Page) -> bool:
         """Check if there's a 2FA error message."""
