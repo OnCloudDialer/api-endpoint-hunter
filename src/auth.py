@@ -220,6 +220,20 @@ class AuthHandler:
     
     async def _check_for_2fa(self, page: Page) -> bool:
         """Check if the page is showing a 2FA/MFA prompt."""
+        
+        # Take a screenshot to help debug 2FA detection
+        try:
+            import os
+            from datetime import datetime
+            screenshot_dir = os.path.join(os.getcwd(), "api-docs", "snapshots")
+            os.makedirs(screenshot_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%H%M%S")
+            screenshot_path = os.path.join(screenshot_dir, f"2fa_check_{timestamp}.png")
+            await page.screenshot(path=screenshot_path)
+            console.print(f"  [dim]📸 2FA check screenshot: {screenshot_path}[/]")
+        except Exception as e:
+            console.print(f"  [dim]Could not save 2FA screenshot: {e}[/]")
+        
         # Common 2FA indicators
         twofa_selectors = [
             # Input fields for codes
@@ -286,7 +300,55 @@ class AuthHandler:
         skip_exact = ["user-id", "userid", "username", "email", "login", "password", "pass", "pwd"]
         skip_placeholders = ["email", "username", "user name", "user id", "login", "password"]
         
-        # First pass: Look for very specific 2FA selectors (high confidence)
+        # FIRST: Look for modal dialogs - 2FA is often in a popup modal
+        modal_selectors = [
+            '[role="dialog"] input[type="text"]',
+            '[role="dialog"] input:not([type])',
+            '.modal input[type="text"]',
+            '.modal input:not([type])',
+            '[class*="modal"] input[type="text"]',
+            '[class*="modal"] input:not([type])',
+            '[class*="dialog"] input[type="text"]',
+            '[class*="dialog"] input:not([type])',
+            '[class*="popup"] input[type="text"]',
+            '[class*="verify"] input[type="text"]',
+            '[class*="verify"] input:not([type])',
+            '[class*="2fa"] input',
+            '[class*="mfa"] input',
+            '[class*="otp"] input',
+        ]
+        
+        for selector in modal_selectors:
+            try:
+                elem = await page.query_selector(selector)
+                if elem:
+                    is_visible = await elem.is_visible()
+                    if is_visible:
+                        elem_type = await elem.get_attribute("type") or ""
+                        if elem_type != "password":
+                            console.print(f"  [dim]Found 2FA field in modal: {selector}[/]")
+                            return (selector, False)
+            except Exception:
+                pass
+        
+        # Second: Look for inputs near 2FA-related text
+        try:
+            # Find elements containing verification text
+            verify_texts = await page.query_selector_all('//*[contains(text(), "Verify") or contains(text(), "verification") or contains(text(), "authentication code")]')
+            for text_elem in verify_texts:
+                # Look for nearby input
+                parent = await text_elem.evaluate_handle('el => el.closest("div, form, section")')
+                if parent:
+                    inp = await parent.query_selector('input[type="text"], input:not([type="password"]):not([type="hidden"]):not([type="checkbox"])')
+                    if inp:
+                        is_visible = await inp.is_visible()
+                        if is_visible:
+                            console.print(f"  [dim]Found 2FA field near verification text[/]")
+                            return (inp, True)
+        except Exception as e:
+            console.print(f"  [dim]Error searching near text: {e}[/]")
+        
+        # Third: Look for very specific 2FA selectors (high confidence)
         high_confidence_selectors = [
             'input[autocomplete="one-time-code"]',
             'input[name*="otp"]',
@@ -351,45 +413,77 @@ class AuthHandler:
         # Third pass: Any visible text input that's not obviously username/password
         console.print("  [dim]Searching for any suitable input field...[/]")
         try:
-            inputs = await page.query_selector_all('input[type="text"], input:not([type])')
-            idx = 0
-            for inp in inputs:
+            # First, list ALL visible input fields for debugging
+            all_inputs = await page.query_selector_all('input')
+            console.print(f"  [dim]Found {len(all_inputs)} total input fields on page[/]")
+            
+            visible_text_inputs = []
+            for i, inp in enumerate(all_inputs):
                 is_visible = await inp.is_visible()
-                if not is_visible:
-                    continue
-                
                 elem_id = await inp.get_attribute("id") or ""
                 elem_name = await inp.get_attribute("name") or ""
                 elem_type = await inp.get_attribute("type") or ""
                 elem_placeholder = await inp.get_attribute("placeholder") or ""
+                elem_class = await inp.get_attribute("class") or ""
                 
-                # Skip password fields
-                if elem_type == "password":
-                    continue
-                
-                # Skip exact matches for username fields
+                if is_visible:
+                    console.print(f"  [dim]  Input {i}: type={elem_type}, id={elem_id}, name={elem_name}, placeholder={elem_placeholder[:30] if elem_placeholder else ''}, class={elem_class[:30] if elem_class else ''}[/]")
+                    
+                    # Skip password fields
+                    if elem_type == "password":
+                        continue
+                    
+                    # Skip hidden inputs
+                    if elem_type == "hidden":
+                        continue
+                    
+                    # Skip checkbox/radio
+                    if elem_type in ["checkbox", "radio", "submit", "button"]:
+                        continue
+                    
+                    visible_text_inputs.append((inp, elem_id, elem_name, elem_placeholder, elem_class))
+            
+            console.print(f"  [dim]Found {len(visible_text_inputs)} visible text-like inputs[/]")
+            
+            # Now find the best candidate - prefer fields NOT associated with username/email
+            for inp, elem_id, elem_name, elem_placeholder, elem_class in visible_text_inputs:
                 id_lower = elem_id.lower()
                 name_lower = elem_name.lower()
-                if id_lower in skip_exact or name_lower in skip_exact:
-                    idx += 1
-                    continue
-                
-                # Skip if placeholder clearly indicates username/email
                 placeholder_lower = elem_placeholder.lower()
-                if any(x in placeholder_lower for x in skip_placeholders):
-                    idx += 1
+                class_lower = elem_class.lower()
+                
+                # Skip if looks like username field
+                if id_lower in skip_exact or name_lower in skip_exact:
                     continue
                 
-                console.print(f"  [dim]Found potential 2FA field: id={elem_id}, name={elem_name}, placeholder={elem_placeholder}[/]")
+                # Skip if placeholder indicates username/email
+                if any(x in placeholder_lower for x in skip_placeholders):
+                    continue
                 
-                # If we have an id or name, use selector
+                # Skip if class indicates username/email
+                if any(x in class_lower for x in ["user", "email", "login", "account"]):
+                    continue
+                
+                console.print(f"  [dim]Selected 2FA field: id={elem_id}, name={elem_name}[/]")
+                
                 if elem_id:
                     return (f'#{elem_id}', False)
                 elif elem_name:
                     return (f'input[name="{elem_name}"]', False)
                 
-                # No id/name - return the element handle directly
+                # No id/name - return element handle
                 console.print(f"  [dim]Using element handle (no id/name available)[/]")
+                return (inp, True)
+            
+            # If we got here, all visible inputs look like username fields
+            # As last resort, if there's only ONE visible text input after filtering password, use it
+            if len(visible_text_inputs) == 1:
+                inp, elem_id, elem_name, elem_placeholder, elem_class = visible_text_inputs[0]
+                console.print(f"  [dim]Only one visible input, using it: id={elem_id}, name={elem_name}[/]")
+                if elem_id:
+                    return (f'#{elem_id}', False)
+                elif elem_name:
+                    return (f'input[name="{elem_name}"]', False)
                 return (inp, True)
                 
         except Exception as e:
@@ -495,10 +589,32 @@ class AuthHandler:
     
     async def _find_2fa_submit(self, page: Page) -> Optional[str]:
         """Find the 2FA submit button."""
+        # Prioritize buttons in modals/dialogs with verification text
+        modal_button_selectors = [
+            '[role="dialog"] button:has-text("Verify")',
+            '[class*="modal"] button:has-text("Verify")',
+            '[class*="dialog"] button:has-text("Verify")',
+            'button:has-text("Verify")',
+            '[role="dialog"] button[type="submit"]',
+            '[class*="modal"] button[type="submit"]',
+        ]
+        
+        for selector in modal_button_selectors:
+            try:
+                elem = await page.query_selector(selector)
+                if elem:
+                    is_visible = await elem.is_visible()
+                    if is_visible:
+                        text = await elem.text_content()
+                        console.print(f"  [dim]Found 2FA submit button: {text}[/]")
+                        return selector
+            except Exception:
+                pass
+        
+        # Fallback to generic selectors
         selectors = [
             'button[type="submit"]',
             'input[type="submit"]',
-            'button:has-text("Verify")',
             'button:has-text("Submit")',
             'button:has-text("Continue")',
             'button:has-text("Confirm")',

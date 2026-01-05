@@ -250,18 +250,25 @@ async def remove_profile(name: str):
 @app.post("/api/crawl")
 async def start_crawl(request: CrawlRequest):
     """Start a new crawl."""
-    if crawl_state["running"]:
+    # Check if a crawl is truly running (task exists and isn't done)
+    task = crawl_state.get("crawl_task")
+    if task and not task.done():
         return JSONResponse({"error": "A crawl is already in progress"}, status_code=400)
     
     # Validate URL
     if not request.url or not request.url.startswith(('http://', 'https://')):
         return JSONResponse({"error": "Invalid URL. Must start with http:// or https://"}, status_code=400)
     
-    # Reset state
+    # Reset ALL state
     crawl_state["running"] = True
     crawl_state["progress"] = []
     crawl_state["result"] = None
     crawl_state["endpoints"] = []
+    crawl_state["waiting_for_2fa"] = False
+    crawl_state["2fa_code"] = None
+    crawl_state["2fa_event"] = None
+    crawl_state["crawl_task"] = None
+    crawl_state["snapshots"] = []
     
     # Start crawl in background and track the task
     task = asyncio.create_task(run_crawl(request))
@@ -275,13 +282,20 @@ async def stop_crawl():
     """Stop the current crawl."""
     crawl_state["running"] = False
     
+    # Clear 2FA state - this unblocks any waiting 2FA request
+    crawl_state["waiting_for_2fa"] = False
+    if crawl_state.get("2fa_event"):
+        crawl_state["2fa_event"].set()  # Unblock any waiting code
+    crawl_state["2fa_code"] = None
+    crawl_state["2fa_event"] = None
+    
     # Cancel the task if it exists
     task = crawl_state.get("crawl_task")
     if task and not task.done():
         task.cancel()
         try:
-            await task
-        except asyncio.CancelledError:
+            await asyncio.wait_for(task, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
             pass
     
     crawl_state["crawl_task"] = None
