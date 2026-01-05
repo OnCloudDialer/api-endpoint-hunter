@@ -433,7 +433,7 @@ async def run_crawl(request: CrawlRequest):
         await broadcast({"type": "status", "message": "📊 Analyzing endpoints...", "phase": "analyze"})
         
         # Analyze
-        analyzer = EndpointAnalyzer()
+        analyzer = EndpointAnalyzer(filter_non_api=True, redact_sensitive=True)
         endpoint_groups = analyzer.analyze(captured_endpoints)
         
         # Store endpoints for UI

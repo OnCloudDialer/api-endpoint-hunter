@@ -190,18 +190,40 @@ class CapturedEndpoint(BaseModel):
         import re
         parts = path.split("/")
         normalized = []
-        for part in parts:
-            # UUID pattern
+        
+        for i, part in enumerate(parts):
+            if not part:
+                normalized.append(part)
+                continue
+            
+            # UUID pattern (standard format)
             if re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', part, re.I):
                 normalized.append("{id}")
-            # Numeric ID
+            # Numeric ID (pure digits)
             elif re.match(r'^\d+$', part):
                 normalized.append("{id}")
-            # MongoDB ObjectId
+            # MongoDB ObjectId (24 hex chars)
             elif re.match(r'^[0-9a-f]{24}$', part, re.I):
                 normalized.append("{id}")
+            # Alphanumeric ID patterns (like 02V1TCA, 03XXDCD)
+            # - Mix of digits and uppercase letters, 5-10 chars
+            # - Not a common word (has digits mixed in)
+            elif re.match(r'^[0-9A-Z]{5,10}$', part) and re.search(r'\d', part) and re.search(r'[A-Z]', part):
+                normalized.append("{id}")
+            # Short hex-like IDs (6-12 chars, alphanumeric)
+            elif re.match(r'^[0-9a-f]{6,12}$', part, re.I):
+                normalized.append("{id}")
+            # Base64-like IDs (alphanumeric with possible - or _)
+            elif re.match(r'^[A-Za-z0-9_-]{20,}$', part) and not part.islower():
+                normalized.append("{id}")
+            # Slug with ID pattern (e.g., "user-123", "item_456")
+            elif re.match(r'^[a-z]+-\d+$', part, re.I) or re.match(r'^[a-z]+_\d+$', part, re.I):
+                # Extract the prefix and replace number
+                prefix = re.sub(r'[-_]\d+$', '', part)
+                normalized.append(f"{prefix}_{{id}}")
             else:
                 normalized.append(part)
+        
         return "/".join(normalized)
 
 

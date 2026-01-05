@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from collections import defaultdict
@@ -25,17 +26,49 @@ from .models import (
 
 console = Console()
 
+# Sensitive field names to redact
+SENSITIVE_FIELDS = [
+    "password", "passwd", "pwd", "pass",
+    "secret", "token", "api_key", "apikey", "api-key",
+    "auth", "authorization", "bearer",
+    "credential", "private", "key",
+    "session", "cookie", "jwt",
+    "access_token", "refresh_token",
+    "client_secret", "client_id",
+]
+
+# Patterns for non-API paths to filter out
+NON_API_PATTERNS = [
+    r"^/resources/",  # Resource/translation files
+    r"\.(properties|json|xml|yaml|yml)$",  # Config files when not under /api/
+    r"^/static/",
+    r"^/assets/",
+    r"^/_next/",
+    r"^/__",
+    r"\.(css|js|map|ico|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)(\?.*)?$",
+]
+
 
 class EndpointAnalyzer:
     """Analyzes captured endpoints and infers schemas."""
     
-    def __init__(self):
+    def __init__(self, filter_non_api: bool = True, redact_sensitive: bool = True):
         self.endpoint_groups: dict[str, EndpointGroup] = {}
+        self.filter_non_api = filter_non_api
+        self.redact_sensitive = redact_sensitive
     
     def analyze(self, captured_endpoints: list[CapturedEndpoint]) -> list[EndpointGroup]:
         """Analyze captured endpoints and group by pattern."""
         
         console.print("\n[cyan]📊 Analyzing captured endpoints...[/]")
+        
+        # Filter out non-API endpoints
+        if self.filter_non_api:
+            original_count = len(captured_endpoints)
+            captured_endpoints = [ep for ep in captured_endpoints if self._is_api_endpoint(ep)]
+            filtered_count = original_count - len(captured_endpoints)
+            if filtered_count > 0:
+                console.print(f"  [dim]Filtered out {filtered_count} non-API endpoints[/]")
         
         # Group endpoints by their pattern
         groups: dict[str, list[CapturedEndpoint]] = defaultdict(list)
@@ -50,6 +83,9 @@ class EndpointAnalyzer:
         for endpoint_id, endpoints in groups.items():
             group = self._analyze_group(endpoints)
             if group:
+                # Redact sensitive data
+                if self.redact_sensitive:
+                    group = self._redact_sensitive_data(group)
                 analyzed_groups.append(group)
         
         # Sort by path
@@ -58,6 +94,99 @@ class EndpointAnalyzer:
         console.print(f"  [dim]Found {len(analyzed_groups)} unique endpoint patterns[/]")
         
         return analyzed_groups
+    
+    def _is_api_endpoint(self, endpoint: CapturedEndpoint) -> bool:
+        """Check if endpoint is a real API (not resource file, static asset, etc.)."""
+        path = endpoint.request.parsed_url["path"]
+        
+        # Always include /api/ paths
+        if "/api/" in path.lower():
+            return True
+        
+        # Check against non-API patterns
+        for pattern in NON_API_PATTERNS:
+            if re.search(pattern, path, re.I):
+                return False
+        
+        # Check content type - JSON responses are likely APIs
+        if endpoint.response.content_type == ContentType.JSON:
+            return True
+        
+        # Exclude HTML responses (usually pages, not APIs)
+        if endpoint.response.content_type == ContentType.HTML:
+            return False
+        
+        return True
+    
+    def _redact_sensitive_data(self, group: EndpointGroup) -> EndpointGroup:
+        """Redact sensitive data like passwords, tokens, etc."""
+        # Deep copy to avoid modifying original
+        group = group.model_copy(deep=True)
+        
+        # Redact request body
+        if group.request_body:
+            if group.request_body.example:
+                group.request_body.example = self._redact_object(group.request_body.example)
+            group.request_body.examples = [
+                self._redact_object(ex) for ex in group.request_body.examples
+            ]
+            # Redact schema examples
+            for prop_name, prop in group.request_body.schema_properties.items():
+                self._redact_schema_property(prop_name, prop)
+        
+        # Redact response bodies
+        for status_code, response in group.responses.items():
+            if response.example:
+                response.example = self._redact_object(response.example)
+            response.examples = [
+                self._redact_object(ex) for ex in response.examples
+            ]
+            # Redact schema examples
+            for prop_name, prop in response.schema_properties.items():
+                self._redact_schema_property(prop_name, prop)
+        
+        # Redact parameter examples
+        for param in group.parameters:
+            if self._is_sensitive_field(param.name):
+                param.example = "***REDACTED***"
+                param.examples = ["***REDACTED***"]
+        
+        return group
+    
+    def _redact_object(self, obj: Any) -> Any:
+        """Recursively redact sensitive fields in an object."""
+        if isinstance(obj, dict):
+            result = {}
+            for key, value in obj.items():
+                if self._is_sensitive_field(key):
+                    result[key] = "***REDACTED***"
+                else:
+                    result[key] = self._redact_object(value)
+            return result
+        elif isinstance(obj, list):
+            return [self._redact_object(item) for item in obj]
+        return obj
+    
+    def _redact_schema_property(self, name: str, prop: SchemaProperty):
+        """Redact sensitive schema property examples."""
+        if self._is_sensitive_field(name):
+            prop.example = "***REDACTED***"
+        
+        # Recurse into nested properties
+        for nested_name, nested_prop in prop.properties.items():
+            self._redact_schema_property(nested_name, nested_prop)
+        
+        # Handle array items
+        if prop.items:
+            self._redact_schema_property(name, prop.items)
+    
+    def _is_sensitive_field(self, name: str) -> bool:
+        """Check if a field name is sensitive."""
+        name_lower = name.lower()
+        for sensitive in SENSITIVE_FIELDS:
+            if sensitive in name_lower:
+                return True
+        return False
     
     def _analyze_group(self, endpoints: list[CapturedEndpoint]) -> Optional[EndpointGroup]:
         """Analyze a group of similar endpoints."""

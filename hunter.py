@@ -304,7 +304,7 @@ async def run_crawl(config: CrawlConfig):
             return
         
         # Analyze endpoints
-        analyzer = EndpointAnalyzer()
+        analyzer = EndpointAnalyzer(filter_non_api=True, redact_sensitive=True)
         endpoint_groups = analyzer.analyze(captured_endpoints)
         
         if not endpoint_groups:
