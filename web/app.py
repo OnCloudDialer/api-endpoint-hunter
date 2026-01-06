@@ -795,8 +795,53 @@ async def run_recording(request: RecordRequest):
                 print(f"[Record] Error capturing response: {e}")
                 traceback.print_exc()
         
-        # Listen for responses
+        # Listen for responses on main page
         page.on("response", handle_response)
+        
+        # Track all pages
+        all_pages = [page]
+        
+        # Handle page crashes
+        def handle_crash():
+            print("[Record] ⚠️ Page crashed!")
+        page.on("crash", handle_crash)
+        
+        # Handle popups/new windows - CRITICAL for sites that open links in new tabs
+        async def handle_popup(popup_page):
+            print(f"[Record] 📄 New popup/tab opened: {popup_page.url}")
+            all_pages.append(popup_page)
+            
+            # Attach response handler to popup too!
+            popup_page.on("response", handle_response)
+            popup_page.on("crash", handle_crash)
+            
+            # Handle nested popups
+            popup_page.on("popup", handle_popup)
+            
+            # Track when popup closes
+            def on_close():
+                print(f"[Record] 📄 Popup closed")
+                if popup_page in all_pages:
+                    all_pages.remove(popup_page)
+            popup_page.on("close", on_close)
+            
+            await broadcast({
+                "type": "record_status", 
+                "message": f"📄 New tab opened - still capturing!"
+            })
+        
+        # Listen for popups on main page
+        page.on("popup", handle_popup)
+        
+        # Also listen at context level for any new pages
+        async def handle_new_page(new_page):
+            if new_page not in all_pages:
+                print(f"[Record] 📄 New page in context: {new_page.url}")
+                all_pages.append(new_page)
+                new_page.on("response", handle_response)
+                new_page.on("popup", handle_popup)
+        
+        context.on("page", handle_new_page)
         
         await broadcast({"type": "record_status", "message": "🔐 Handling authentication..."})
         
@@ -835,10 +880,35 @@ async def run_recording(request: RecordRequest):
         while record_state["recording"]:
             await asyncio.sleep(1)
             
-            # Send heartbeat with current count
+            # Check if browser is still connected
+            if not browser.is_connected():
+                print("[Record] ⚠️ Browser disconnected!")
+                await broadcast({
+                    "type": "record_error",
+                    "message": "Browser was closed. Recording stopped."
+                })
+                break
+            
+            # Check if main page is still open
+            if page.is_closed():
+                print("[Record] ⚠️ Main page was closed!")
+                # Try to use another open page
+                active_pages = [p for p in all_pages if not p.is_closed()]
+                if active_pages:
+                    print(f"[Record] Still have {len(active_pages)} active page(s)")
+                else:
+                    await broadcast({
+                        "type": "record_error", 
+                        "message": "All pages closed. Recording stopped."
+                    })
+                    break
+            
+            # Send heartbeat with current count and page info
+            active_count = len([p for p in all_pages if not p.is_closed()])
             await broadcast({
                 "type": "record_heartbeat",
                 "endpoints_count": len(record_state["endpoint_groups"]),
+                "pages_count": active_count,
             })
         
     except asyncio.CancelledError:
