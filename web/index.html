@@ -947,6 +947,228 @@
             color: var(--accent-secondary);
             background: rgba(99, 102, 241, 0.1);
         }
+
+        /* ============================================
+           RECORD MODE STYLES
+           ============================================ */
+        .mode-switcher {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            padding: 0.25rem;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+        }
+
+        .mode-btn {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .mode-btn:hover {
+            color: var(--text-secondary);
+        }
+
+        .mode-btn.active {
+            background: var(--accent-primary);
+            color: white;
+            box-shadow: 0 4px 15px var(--accent-glow);
+        }
+
+        .mode-content {
+            display: none;
+        }
+
+        .mode-content.active {
+            display: block;
+        }
+
+        /* Record Mode specific */
+        .record-status {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+            margin-bottom: 1rem;
+        }
+
+        .record-status.recording {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .record-status.recording .pulse {
+            width: 12px;
+            height: 12px;
+            background: var(--error);
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+
+        .record-counter {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 2rem;
+            font-weight: 600;
+            color: var(--accent-secondary);
+            text-align: center;
+            margin: 1.5rem 0;
+        }
+
+        .record-counter small {
+            display: block;
+            font-size: 0.8rem;
+            font-weight: 400;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        /* Recorded endpoints list */
+        .recorded-endpoint {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+            margin-bottom: 0.75rem;
+            border-left: 3px solid var(--border-color);
+            transition: all 0.2s ease;
+        }
+
+        .recorded-endpoint.new {
+            animation: slideInLeft 0.3s ease;
+            border-left-color: var(--accent-primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .recorded-endpoint.confirmed {
+            border-left-color: var(--success);
+        }
+
+        .recorded-endpoint.skipped {
+            opacity: 0.5;
+            border-left-color: var(--text-muted);
+        }
+
+        @keyframes slideInLeft {
+            from { opacity: 0; transform: translateX(-20px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .recorded-endpoint-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .recorded-endpoint-path {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .recorded-endpoint-name {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        .recorded-endpoint-name.custom {
+            color: var(--success);
+        }
+
+        .recorded-endpoint-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .recorded-endpoint-actions button {
+            padding: 0.4rem 0.6rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .recorded-endpoint-actions button:hover {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        .recorded-endpoint-actions button.skip:hover {
+            border-color: var(--error);
+            color: var(--error);
+        }
+
+        /* Edit endpoint modal */
+        .edit-endpoint-modal .modal {
+            max-width: 500px;
+        }
+
+        .edit-endpoint-modal .endpoint-preview {
+            background: var(--bg-tertiary);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        .edit-endpoint-modal .endpoint-preview .method {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+
+        /* Record mode button variants */
+        .btn-record {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-record:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(239, 68, 68, 0.4);
+        }
+
+        .btn-record.recording {
+            animation: recordPulse 2s infinite;
+        }
+
+        @keyframes recordPulse {
+            0%, 100% { box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3); }
+            50% { box-shadow: 0 4px 30px rgba(239, 68, 68, 0.6); }
+        }
     </style>
 </head>
 <body>
@@ -1008,6 +1230,32 @@
         </div>
     </div>
 
+    <!-- Edit Endpoint Modal (Record Mode) -->
+    <div class="modal-overlay edit-endpoint-modal" id="editEndpointModal">
+        <div class="modal">
+            <div class="modal-icon">✏️</div>
+            <h2>Edit Endpoint</h2>
+            <div class="endpoint-preview">
+                <span class="method method-GET" id="editEndpointMethod">GET</span>
+                <span id="editEndpointPath">/api/example</span>
+            </div>
+            <div class="form-group">
+                <label for="editEndpointName">Name</label>
+                <input type="text" id="editEndpointName" placeholder="e.g., Get User Details">
+            </div>
+            <div class="form-group">
+                <label for="editEndpointDescription">Description</label>
+                <textarea id="editEndpointDescription" placeholder="What does this endpoint do?"></textarea>
+            </div>
+            <input type="hidden" id="editEndpointId">
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" onclick="closeEditEndpointModal()">Cancel</button>
+                <button class="btn btn-danger" onclick="skipEndpoint()">🚫 Skip</button>
+                <button class="btn btn-primary" onclick="confirmEndpoint()">✓ Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
         <header>
             <div class="logo">
@@ -1027,20 +1275,32 @@
                     <h2>Configuration</h2>
                 </div>
                 <div class="card-body">
-                    <!-- Profile selector -->
-                    <div class="profile-bar">
-                        <select id="profileSelect" onchange="loadProfile()">
-                            <option value="">— Select a saved profile —</option>
-                        </select>
-                        <button type="button" class="btn-icon" onclick="showSaveProfileModal()" title="Save current config">
-                            💾
+                    <!-- Mode Switcher -->
+                    <div class="mode-switcher">
+                        <button class="mode-btn active" onclick="switchMode('crawl')" id="crawlModeBtn">
+                            🕷️ Auto Crawl
                         </button>
-                        <button type="button" class="btn-icon" onclick="deleteCurrentProfile()" title="Delete selected profile" id="deleteProfileBtn" style="display: none;">
-                            🗑️
+                        <button class="mode-btn" onclick="switchMode('record')" id="recordModeBtn">
+                            🔴 Record Mode
                         </button>
                     </div>
 
-                    <form id="crawlForm">
+                    <!-- ========== CRAWL MODE ========== -->
+                    <div class="mode-content active" id="crawlModeContent">
+                        <!-- Profile selector -->
+                        <div class="profile-bar">
+                            <select id="profileSelect" onchange="loadProfile()">
+                                <option value="">— Select a saved profile —</option>
+                            </select>
+                            <button type="button" class="btn-icon" onclick="showSaveProfileModal()" title="Save current config">
+                                💾
+                            </button>
+                            <button type="button" class="btn-icon" onclick="deleteCurrentProfile()" title="Delete selected profile" id="deleteProfileBtn" style="display: none;">
+                                🗑️
+                            </button>
+                        </div>
+
+                        <form id="crawlForm">
                         <div class="form-group">
                             <label for="url">Target URL</label>
                             <input type="url" id="url" name="url" placeholder="https://example.com" required>
@@ -1143,6 +1403,64 @@
                             ⏹️ Stop Crawl
                         </button>
                     </div>
+                    </div><!-- End crawlModeContent -->
+
+                    <!-- ========== RECORD MODE ========== -->
+                    <div class="mode-content" id="recordModeContent">
+                        <div class="form-group">
+                            <label for="recordUrl">Start URL</label>
+                            <input type="url" id="recordUrl" placeholder="https://example.com" required>
+                        </div>
+
+                        <!-- Authentication (Record Mode) -->
+                        <div class="collapsible" id="recordAuthSection">
+                            <div class="collapsible-header" onclick="toggleCollapsible('recordAuthSection')">
+                                <h3>🔐 Authentication</h3>
+                                <span class="collapsible-arrow">▼</span>
+                            </div>
+                            <div class="collapsible-content">
+                                <div class="collapsible-inner">
+                                    <div class="form-group">
+                                        <label for="recordLoginUrl">Login URL (optional)</label>
+                                        <input type="url" id="recordLoginUrl" placeholder="https://example.com/login">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="recordUsername">Username</label>
+                                        <input type="text" id="recordUsername" placeholder="user@example.com">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="recordPassword">Password</label>
+                                        <input type="password" id="recordPassword" placeholder="••••••••">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="button" class="btn btn-record btn-full" id="startRecordBtn" onclick="startRecording()">
+                            🔴 Start Recording
+                        </button>
+
+                        <!-- Record Status -->
+                        <div id="recordStatusSection" style="display: none;">
+                            <div class="record-status recording">
+                                <div class="pulse"></div>
+                                <span id="recordStatusText">Recording... Click around in the browser!</span>
+                            </div>
+
+                            <div class="record-counter">
+                                <span id="recordedCount">0</span>
+                                <small>Endpoints Captured</small>
+                            </div>
+
+                            <button type="button" class="btn btn-danger btn-full" onclick="stopRecording()">
+                                ⏹️ Stop Recording
+                            </button>
+
+                            <button type="button" class="btn btn-secondary btn-full" onclick="exportRecorded()" style="margin-top: 0.5rem;">
+                                📄 Export Documentation
+                            </button>
+                        </div>
+                    </div><!-- End recordModeContent -->
                 </div>
             </div>
 
@@ -1150,6 +1468,7 @@
             <div class="card endpoints-panel">
                 <div class="tabs">
                     <button class="tab active" onclick="switchTab('endpoints')">📡 Endpoints</button>
+                    <button class="tab" onclick="switchTab('recorded')">🔴 Recorded</button>
                     <button class="tab" onclick="switchTab('log')">📋 Live Log</button>
                     <button class="tab" onclick="switchTab('snapshots')">📸 Snapshots</button>
                 </div>
@@ -1160,6 +1479,14 @@
                         <p>No endpoints discovered yet.<br>Start a crawl to find API endpoints.</p>
                     </div>
                     <div id="endpointsList"></div>
+                </div>
+
+                <div id="recordedTab" class="endpoints-list" style="display: none;">
+                    <div class="empty-state" id="recordedEmptyState">
+                        <div class="empty-state-icon">🔴</div>
+                        <p>No endpoints recorded yet.<br>Start Record Mode and click around to capture APIs.</p>
+                    </div>
+                    <div id="recordedEndpointsList"></div>
                 </div>
 
                 <div id="logTab" class="endpoints-list" style="display: none;">
@@ -1448,8 +1775,259 @@
             document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
             
             document.getElementById('endpointsTab').style.display = tab === 'endpoints' ? 'block' : 'none';
+            document.getElementById('recordedTab').style.display = tab === 'recorded' ? 'block' : 'none';
             document.getElementById('logTab').style.display = tab === 'log' ? 'block' : 'none';
             document.getElementById('snapshotsTab').style.display = tab === 'snapshots' ? 'block' : 'none';
+        }
+
+        // ============================================
+        // MODE SWITCHING
+        // ============================================
+        function switchMode(mode) {
+            document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(mode + 'ModeBtn').classList.add('active');
+            
+            document.getElementById('crawlModeContent').classList.toggle('active', mode === 'crawl');
+            document.getElementById('recordModeContent').classList.toggle('active', mode === 'record');
+            
+            // Switch to appropriate tab
+            if (mode === 'record') {
+                switchTab('recorded');
+            } else {
+                switchTab('endpoints');
+            }
+        }
+
+        // ============================================
+        // RECORD MODE
+        // ============================================
+        let isRecording = false;
+        let recordedEndpoints = {};
+
+        async function startRecording() {
+            const url = document.getElementById('recordUrl').value;
+            
+            if (!url || !url.startsWith('http')) {
+                showToast('Please enter a valid URL', 'error');
+                return;
+            }
+            
+            const data = {
+                url: url,
+                login_url: document.getElementById('recordLoginUrl').value || null,
+                username: document.getElementById('recordUsername').value || null,
+                password: document.getElementById('recordPassword').value || null,
+            };
+            
+            try {
+                const response = await fetch('/api/record/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data),
+                });
+                
+                if (response.ok) {
+                    isRecording = true;
+                    recordedEndpoints = {};
+                    
+                    // Update UI
+                    document.getElementById('startRecordBtn').style.display = 'none';
+                    document.getElementById('recordStatusSection').style.display = 'block';
+                    document.getElementById('recordedCount').textContent = '0';
+                    document.getElementById('recordedEndpointsList').innerHTML = '';
+                    document.getElementById('recordedEmptyState').style.display = 'none';
+                    
+                    // Switch to recorded tab
+                    switchTab('recorded');
+                    
+                    addLog('🔴 Recording started - browser launched');
+                    showToast('Recording started! Click around in the browser window.', 'success');
+                } else {
+                    const error = await response.json();
+                    showToast(error.error || 'Failed to start recording', 'error');
+                }
+            } catch (err) {
+                showToast('Failed to start recording: ' + err.message, 'error');
+            }
+        }
+
+        async function stopRecording() {
+            try {
+                await fetch('/api/record/stop', { method: 'POST' });
+                
+                isRecording = false;
+                
+                // Update UI
+                document.getElementById('startRecordBtn').style.display = 'block';
+                document.getElementById('recordStatusSection').style.display = 'none';
+                
+                addLog('⏹️ Recording stopped');
+                showToast('Recording stopped. You can now export the documentation.', 'info');
+            } catch (err) {
+                showToast('Failed to stop recording', 'error');
+            }
+        }
+
+        async function exportRecorded() {
+            try {
+                const response = await fetch('/api/record/export', { method: 'POST' });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    addLog(`📄 Exported ${data.endpoints_count} endpoints`);
+                    showToast(`Documentation exported for ${data.endpoints_count} endpoints!`, 'success');
+                    
+                    // Show download buttons
+                    document.getElementById('downloadButtons').style.display = 'flex';
+                } else {
+                    showToast(data.error || 'Failed to export', 'error');
+                }
+            } catch (err) {
+                showToast('Failed to export: ' + err.message, 'error');
+            }
+        }
+
+        function addRecordedEndpoint(endpoint) {
+            recordedEndpoints[endpoint.id] = endpoint;
+            renderRecordedEndpoints();
+            
+            // Update counter
+            document.getElementById('recordedCount').textContent = Object.keys(recordedEndpoints).length;
+            
+            // Show edit modal for new endpoints
+            showEditEndpointModal(endpoint);
+        }
+
+        function renderRecordedEndpoints() {
+            const list = document.getElementById('recordedEndpointsList');
+            const emptyState = document.getElementById('recordedEmptyState');
+            const endpoints = Object.values(recordedEndpoints);
+            
+            if (endpoints.length === 0) {
+                emptyState.style.display = 'block';
+                list.innerHTML = '';
+                return;
+            }
+            
+            emptyState.style.display = 'none';
+            
+            list.innerHTML = endpoints.map(ep => {
+                const statusClass = ep.skipped ? 'skipped' : (ep.confirmed ? 'confirmed' : 'new');
+                const nameClass = ep.name ? 'custom' : '';
+                const displayName = ep.name || ep.auto_name || 'Unnamed endpoint';
+                
+                return `
+                    <div class="recorded-endpoint ${statusClass}">
+                        <span class="endpoint-method method-${ep.method}">${ep.method}</span>
+                        <div class="recorded-endpoint-info">
+                            <div class="recorded-endpoint-path">${ep.path}</div>
+                            <div class="recorded-endpoint-name ${nameClass}">${displayName}</div>
+                        </div>
+                        <div class="recorded-endpoint-actions">
+                            <button onclick="showEditEndpointModal(recordedEndpoints['${ep.id}'])">✏️ Edit</button>
+                            <button class="skip" onclick="toggleSkipEndpoint('${ep.id}')">${ep.skipped ? '↩️ Restore' : '🚫 Skip'}</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function showEditEndpointModal(endpoint) {
+            const modal = document.getElementById('editEndpointModal');
+            const methodEl = document.getElementById('editEndpointMethod');
+            
+            methodEl.textContent = endpoint.method;
+            methodEl.className = `method method-${endpoint.method}`;
+            
+            document.getElementById('editEndpointPath').textContent = endpoint.path;
+            document.getElementById('editEndpointName').value = endpoint.name || endpoint.auto_name || '';
+            document.getElementById('editEndpointDescription').value = endpoint.description || '';
+            document.getElementById('editEndpointId').value = endpoint.id;
+            
+            modal.classList.add('active');
+            document.getElementById('editEndpointName').focus();
+        }
+
+        function closeEditEndpointModal() {
+            document.getElementById('editEndpointModal').classList.remove('active');
+        }
+
+        async function confirmEndpoint() {
+            const id = document.getElementById('editEndpointId').value;
+            const name = document.getElementById('editEndpointName').value.trim();
+            const description = document.getElementById('editEndpointDescription').value.trim();
+            
+            try {
+                const response = await fetch('/api/record/endpoint/edit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        endpoint_id: id,
+                        name: name || null,
+                        description: description || null,
+                        skip: false,
+                    }),
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    recordedEndpoints[id] = data.endpoint;
+                    renderRecordedEndpoints();
+                    closeEditEndpointModal();
+                    showToast('Endpoint confirmed!', 'success');
+                }
+            } catch (err) {
+                showToast('Failed to update endpoint', 'error');
+            }
+        }
+
+        async function skipEndpoint() {
+            const id = document.getElementById('editEndpointId').value;
+            
+            try {
+                const response = await fetch('/api/record/endpoint/edit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        endpoint_id: id,
+                        skip: true,
+                    }),
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    recordedEndpoints[id] = data.endpoint;
+                    renderRecordedEndpoints();
+                    closeEditEndpointModal();
+                    showToast('Endpoint skipped', 'info');
+                }
+            } catch (err) {
+                showToast('Failed to skip endpoint', 'error');
+            }
+        }
+
+        async function toggleSkipEndpoint(id) {
+            const endpoint = recordedEndpoints[id];
+            if (!endpoint) return;
+            
+            try {
+                const response = await fetch('/api/record/endpoint/edit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        endpoint_id: id,
+                        skip: !endpoint.skipped,
+                    }),
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    recordedEndpoints[id] = data.endpoint;
+                    renderRecordedEndpoints();
+                }
+            } catch (err) {
+                showToast('Failed to update endpoint', 'error');
+            }
         }
 
         // Download files
@@ -1680,6 +2258,39 @@
                     break;
                 case '2fa_required':
                     show2FAModal();
+                    break;
+                
+                // Record Mode events
+                case 'record_status':
+                    document.getElementById('recordStatusText').textContent = data.message;
+                    addLog(data.message);
+                    break;
+                case 'record_ready':
+                    document.getElementById('recordStatusText').textContent = data.message;
+                    addLog(data.message);
+                    break;
+                case 'record_new_endpoint':
+                    addRecordedEndpoint(data.endpoint);
+                    addLog(`🔴 Captured: ${data.endpoint.method} ${data.endpoint.path}`);
+                    break;
+                case 'record_endpoint_updated':
+                    recordedEndpoints[data.endpoint.id] = data.endpoint;
+                    renderRecordedEndpoints();
+                    break;
+                case 'record_heartbeat':
+                    document.getElementById('recordedCount').textContent = data.endpoints_count;
+                    break;
+                case 'record_stopped':
+                    isRecording = false;
+                    document.getElementById('startRecordBtn').style.display = 'block';
+                    document.getElementById('recordStatusSection').style.display = 'none';
+                    break;
+                case 'record_error':
+                    showToast('Recording error: ' + data.message, 'error');
+                    addLog('❌ Recording error: ' + data.message);
+                    break;
+                case 'record_export_complete':
+                    document.getElementById('downloadButtons').style.display = 'flex';
                     break;
             }
         }

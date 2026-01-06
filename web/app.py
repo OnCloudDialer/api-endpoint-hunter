@@ -18,11 +18,11 @@ from pydantic import BaseModel
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.models import CrawlConfig
+from src.models import CrawlConfig, CapturedEndpoint, CapturedRequest, CapturedResponse, HttpMethod, ContentType
 from src.crawler import Crawler
 from src.analyzer import EndpointAnalyzer
 from src.generator import DocumentationWriter, MarkdownGenerator, OpenAPIGenerator
-from src.auth import set_2fa_callback
+from src.auth import set_2fa_callback, AuthHandler
 from src.config_manager import save_profile, load_profile, list_profiles, delete_profile
 
 app = FastAPI(title="API Endpoint Hunter")
@@ -38,6 +38,17 @@ crawl_state = {
     "2fa_event": None,
     "crawl_task": None,  # Track the background task
     "snapshots": [],  # List of snapshot info
+}
+
+# Store record mode state
+record_state = {
+    "recording": False,
+    "browser": None,
+    "context": None,
+    "page": None,
+    "captured_endpoints": [],  # Raw captured
+    "endpoint_groups": {},  # Grouped by pattern with user edits
+    "task": None,
 }
 
 # Serve snapshots directory
@@ -64,6 +75,22 @@ class SaveProfileRequest(BaseModel):
     name: str
     description: str = ""
     config: CrawlRequest
+
+
+class RecordRequest(BaseModel):
+    url: str
+    login_url: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    username_field: Optional[str] = None
+    password_field: Optional[str] = None
+
+
+class EndpointEditRequest(BaseModel):
+    endpoint_id: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    skip: bool = False
 
 
 # WebSocket connections for live updates
@@ -487,6 +514,390 @@ async def run_crawl(request: CrawlRequest):
     finally:
         crawl_state["running"] = False
         crawl_state["crawl_task"] = None
+
+
+# ============================================================================
+# RECORD MODE ENDPOINTS
+# ============================================================================
+
+@app.post("/api/record/start")
+async def start_recording(request: RecordRequest):
+    """Start record mode with a visible browser."""
+    if record_state["recording"]:
+        return JSONResponse({"error": "Recording already in progress"}, status_code=400)
+    
+    # Validate URL
+    if not request.url or not request.url.startswith(('http://', 'https://')):
+        return JSONResponse({"error": "Invalid URL"}, status_code=400)
+    
+    # Reset state
+    record_state["recording"] = True
+    record_state["captured_endpoints"] = []
+    record_state["endpoint_groups"] = {}
+    
+    # Start recording in background
+    task = asyncio.create_task(run_recording(request))
+    record_state["task"] = task
+    
+    return {"status": "started"}
+
+
+@app.post("/api/record/stop")
+async def stop_recording():
+    """Stop record mode and close browser."""
+    record_state["recording"] = False
+    
+    # Cancel the task
+    if record_state.get("task"):
+        record_state["task"].cancel()
+        try:
+            await asyncio.wait_for(record_state["task"], timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+    
+    # Close browser
+    if record_state.get("browser"):
+        try:
+            await record_state["browser"].close()
+        except:
+            pass
+    
+    record_state["browser"] = None
+    record_state["context"] = None
+    record_state["page"] = None
+    record_state["task"] = None
+    
+    await broadcast({"type": "record_stopped"})
+    return {"status": "stopped"}
+
+
+@app.get("/api/record/endpoints")
+async def get_recorded_endpoints():
+    """Get all captured endpoints during recording."""
+    return {
+        "endpoints": list(record_state["endpoint_groups"].values()),
+        "count": len(record_state["endpoint_groups"]),
+    }
+
+
+@app.post("/api/record/endpoint/edit")
+async def edit_recorded_endpoint(request: EndpointEditRequest):
+    """Edit a captured endpoint (name, description, skip)."""
+    endpoint_id = request.endpoint_id
+    
+    if endpoint_id not in record_state["endpoint_groups"]:
+        return JSONResponse({"error": "Endpoint not found"}, status_code=404)
+    
+    ep = record_state["endpoint_groups"][endpoint_id]
+    
+    if request.name is not None:
+        ep["name"] = request.name
+    if request.description is not None:
+        ep["description"] = request.description
+    if request.skip:
+        ep["skipped"] = True
+    
+    ep["confirmed"] = True
+    
+    await broadcast({
+        "type": "record_endpoint_updated",
+        "endpoint": ep,
+    })
+    
+    return {"status": "updated", "endpoint": ep}
+
+
+@app.post("/api/record/export")
+async def export_recorded_docs():
+    """Generate documentation from recorded endpoints."""
+    if not record_state["endpoint_groups"]:
+        return JSONResponse({"error": "No endpoints captured"}, status_code=400)
+    
+    # Filter out skipped endpoints
+    endpoints_to_export = [
+        ep for ep in record_state["endpoint_groups"].values()
+        if not ep.get("skipped", False)
+    ]
+    
+    if not endpoints_to_export:
+        return JSONResponse({"error": "All endpoints were skipped"}, status_code=400)
+    
+    # Convert to EndpointGroup format for generator
+    from src.models import EndpointGroup
+    
+    groups = []
+    for ep in endpoints_to_export:
+        # Use user-provided name or auto-generated
+        summary = ep.get("name") or ep.get("auto_name", "")
+        description = ep.get("description", "")
+        
+        group = EndpointGroup(
+            method=HttpMethod(ep["method"]),
+            path_pattern=ep["path"],
+            base_url=ep["base_url"],
+            summary=summary,
+            description=description,
+            tags=ep.get("tags", ["General"]),
+        )
+        groups.append(group)
+    
+    # Generate documentation
+    output_dir = str(Path(__file__).parent.parent / "api-docs")
+    writer = DocumentationWriter(output_dir)
+    
+    # Create a minimal config for the generators
+    config = CrawlConfig(
+        start_url=record_state.get("start_url", "https://example.com"),
+    )
+    
+    openapi_gen = OpenAPIGenerator()
+    spec = openapi_gen.generate(groups, config)
+    writer.write_openapi(spec)
+    
+    md_gen = MarkdownGenerator()
+    markdown = md_gen.generate(groups, config)
+    writer.write_markdown(markdown)
+    
+    await broadcast({
+        "type": "record_export_complete",
+        "endpoints_count": len(groups),
+    })
+    
+    return {
+        "status": "exported",
+        "endpoints_count": len(groups),
+    }
+
+
+async def run_recording(request: RecordRequest):
+    """Run the recording session with visible browser."""
+    from playwright.async_api import async_playwright
+    
+    try:
+        await broadcast({"type": "record_status", "message": "🚀 Launching browser..."})
+        
+        record_state["start_url"] = request.url
+        
+        playwright = await async_playwright().start()
+        
+        # Launch VISIBLE browser (headless=False)
+        browser = await playwright.chromium.launch(
+            headless=False,
+            args=[
+                "--start-maximized",
+                "--disable-blink-features=AutomationControlled",
+            ]
+        )
+        record_state["browser"] = browser
+        
+        # Create context
+        context = await browser.new_context(
+            viewport=None,  # Use full window size
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        )
+        record_state["context"] = context
+        
+        # Create page
+        page = await context.new_page()
+        record_state["page"] = page
+        
+        # Set up request interception
+        captured_ids = set()  # Track already captured to avoid duplicates
+        
+        async def handle_response(response):
+            """Capture API responses."""
+            if not record_state["recording"]:
+                return
+            
+            try:
+                request = response.request
+                url = request.url
+                
+                # Skip non-API requests
+                if not _should_capture_request(url, response):
+                    return
+                
+                # Create endpoint ID for deduplication
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                path = parsed.path
+                method = request.method
+                
+                # Normalize path for ID
+                normalized_path = CapturedEndpoint._normalize_path(path)
+                endpoint_id = f"{method}:{normalized_path}"
+                
+                # Skip if already captured this pattern
+                if endpoint_id in captured_ids:
+                    return
+                
+                captured_ids.add(endpoint_id)
+                
+                # Get response info
+                status = response.status
+                content_type = response.headers.get("content-type", "")
+                
+                # Auto-generate name from path
+                auto_name = _generate_endpoint_name(method, normalized_path)
+                tags = _infer_tags(normalized_path)
+                
+                # Store endpoint
+                endpoint_data = {
+                    "id": endpoint_id,
+                    "method": method,
+                    "path": normalized_path,
+                    "original_path": path,
+                    "base_url": f"{parsed.scheme}://{parsed.netloc}",
+                    "status": status,
+                    "content_type": content_type,
+                    "auto_name": auto_name,
+                    "name": None,  # User can override
+                    "description": None,
+                    "tags": tags,
+                    "confirmed": False,
+                    "skipped": False,
+                    "captured_at": datetime.now().isoformat(),
+                }
+                
+                record_state["endpoint_groups"][endpoint_id] = endpoint_data
+                
+                # Broadcast new endpoint
+                await broadcast({
+                    "type": "record_new_endpoint",
+                    "endpoint": endpoint_data,
+                })
+                
+            except Exception as e:
+                print(f"Error capturing response: {e}")
+        
+        # Listen for responses
+        page.on("response", handle_response)
+        
+        await broadcast({"type": "record_status", "message": "🔐 Handling authentication..."})
+        
+        # Handle login if provided
+        if request.login_url and request.username and request.password:
+            await page.goto(request.login_url, wait_until="networkidle")
+            
+            # Find and fill login fields
+            username_sel = request.username_field or 'input[type="text"], input[type="email"], input[name*="user"], input[id*="user"]'
+            password_sel = request.password_field or 'input[type="password"]'
+            
+            try:
+                await page.fill(username_sel, request.username)
+                await page.fill(password_sel, request.password)
+                
+                # Try to submit
+                submit_btn = page.locator('button[type="submit"], input[type="submit"], button:has-text("Login"), button:has-text("Sign in")')
+                if await submit_btn.count() > 0:
+                    await submit_btn.first.click()
+                    await page.wait_for_load_state("networkidle")
+            except Exception as e:
+                print(f"Login automation failed: {e}")
+        
+        # Navigate to start URL
+        await broadcast({"type": "record_status", "message": f"🌐 Navigating to {request.url}"})
+        await page.goto(request.url, wait_until="networkidle")
+        
+        await broadcast({
+            "type": "record_ready",
+            "message": "✅ Browser ready! Click around to capture API endpoints.",
+        })
+        
+        # Keep running until stopped
+        while record_state["recording"]:
+            await asyncio.sleep(1)
+            
+            # Send heartbeat with current count
+            await broadcast({
+                "type": "record_heartbeat",
+                "endpoints_count": len(record_state["endpoint_groups"]),
+            })
+        
+    except asyncio.CancelledError:
+        await broadcast({"type": "record_stopped"})
+    except Exception as e:
+        await broadcast({"type": "record_error", "message": str(e)})
+    finally:
+        # Cleanup
+        if record_state.get("browser"):
+            try:
+                await record_state["browser"].close()
+            except:
+                pass
+        record_state["recording"] = False
+
+
+def _should_capture_request(url: str, response) -> bool:
+    """Check if request should be captured as an API endpoint."""
+    from urllib.parse import urlparse
+    import re
+    
+    parsed = urlparse(url)
+    path = parsed.path.lower()
+    
+    # Skip static assets
+    skip_extensions = ['.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', 
+                       '.woff', '.woff2', '.ttf', '.eot', '.map']
+    if any(path.endswith(ext) for ext in skip_extensions):
+        return False
+    
+    # Skip common non-API paths
+    skip_patterns = ['/resources/', '/static/', '/assets/', '/_next/', '/sockjs-node/']
+    if any(pattern in path for pattern in skip_patterns):
+        return False
+    
+    # Include if it's under /api/
+    if '/api/' in path:
+        return True
+    
+    # Include if response is JSON
+    content_type = response.headers.get("content-type", "")
+    if "application/json" in content_type:
+        return True
+    
+    return False
+
+
+def _generate_endpoint_name(method: str, path: str) -> str:
+    """Generate a human-readable name for an endpoint."""
+    # Remove common prefixes
+    import re
+    path = re.sub(r'^/?(api|v\d+)/', '', path)
+    
+    # Get meaningful parts
+    parts = [p for p in path.split("/") if p and not p.startswith("{")]
+    
+    if not parts:
+        resource = "resource"
+    else:
+        resource = parts[-1].replace("-", " ").replace("_", " ").title()
+    
+    # Check if it's a single item (has ID param)
+    is_single = "{id}" in path
+    
+    method_actions = {
+        "GET": "Get" if is_single else "List",
+        "POST": "Create",
+        "PUT": "Update",
+        "PATCH": "Update",
+        "DELETE": "Delete",
+    }
+    
+    action = method_actions.get(method, method)
+    return f"{action} {resource}"
+
+
+def _infer_tags(path: str) -> list:
+    """Infer API tags from path."""
+    import re
+    path = re.sub(r'^/?(api|v\d+)/', '', path)
+    parts = [p for p in path.split("/") if p and not p.startswith("{")]
+    
+    if parts:
+        tag = parts[0].replace("-", " ").replace("_", " ").title()
+        return [tag]
+    return ["General"]
 
 
 if __name__ == "__main__":
