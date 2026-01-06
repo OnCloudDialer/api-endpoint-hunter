@@ -440,18 +440,57 @@ class EndpointAnalyzer:
         
         return SchemaType.STRING
     
+    def _infer_format(self, name: str, value: Any) -> Optional[str]:
+        """Infer the format of a value based on name and content."""
+        name_lower = name.lower()
+        
+        # Check for timestamp by name
+        if any(x in name_lower for x in ["date", "time", "timestamp", "created", "updated", "modified"]):
+            if isinstance(value, int):
+                # Unix timestamp in milliseconds (13 digits) or seconds (10 digits)
+                if 1000000000000 <= value <= 9999999999999:
+                    return "timestamp-ms"  # Unix timestamp in milliseconds
+                elif 1000000000 <= value <= 9999999999:
+                    return "timestamp"  # Unix timestamp in seconds
+        
+        # Check for email
+        if "email" in name_lower:
+            return "email"
+        
+        # Check for URL
+        if any(x in name_lower for x in ["url", "link", "href", "uri"]):
+            return "uri"
+        
+        # Check UUID by pattern
+        if isinstance(value, str):
+            if re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', value, re.I):
+                return "uuid"
+        
+        return None
+    
     def _infer_object_schema(self, obj: dict) -> dict[str, SchemaProperty]:
         """Infer schema properties from a JSON object."""
         properties = {}
         
         for key, value in obj.items():
             schema_type = self._infer_type(value)
+            value_format = self._infer_format(key, value)
+            
+            # Generate description for special formats
+            description = ""
+            if value_format == "timestamp-ms":
+                description = "Unix timestamp in milliseconds"
+            elif value_format == "timestamp":
+                description = "Unix timestamp in seconds"
+            elif value_format == "uuid":
+                description = "UUID identifier"
             
             prop = SchemaProperty(
                 name=key,
                 schema_type=schema_type,
                 example=value if not isinstance(value, (dict, list)) else None,
                 nullable=value is None,
+                description=description,
             )
             
             # Handle nested objects

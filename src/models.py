@@ -210,6 +210,14 @@ class CapturedEndpoint(BaseModel):
             # - Not a common word (has digits mixed in)
             elif re.match(r'^[0-9A-Z]{5,10}$', part) and re.search(r'\d', part) and re.search(r'[A-Z]', part):
                 normalized.append("{id}")
+            # Prefixed device/serial IDs (like PD_KYVFC6Y00955, DEV_12345)
+            # - Starts with prefix like PD_, DEV_, ID_, SN_
+            # - Followed by alphanumeric identifier
+            elif re.match(r'^(PD_|DEV_|ID_|SN_|DEVICE_)?[A-Z]{0,3}[A-Z0-9]{6,}$', part, re.I):
+                if re.search(r'\d', part):  # Must have at least one digit
+                    normalized.append("{id}")
+                else:
+                    normalized.append(part)
             # Short hex-like IDs (6-12 chars, alphanumeric)
             elif re.match(r'^[0-9a-f]{6,12}$', part, re.I):
                 normalized.append("{id}")
