@@ -791,7 +791,9 @@ async def run_recording(request: RecordRequest):
                 })
                 
             except Exception as e:
-                print(f"Error capturing response: {e}")
+                import traceback
+                print(f"[Record] Error capturing response: {e}")
+                traceback.print_exc()
         
         # Listen for responses
         page.on("response", handle_response)
@@ -863,23 +865,45 @@ def _should_capture_request(url: str, response) -> bool:
     
     # Skip static assets
     skip_extensions = ['.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', 
-                       '.woff', '.woff2', '.ttf', '.eot', '.map']
+                       '.woff', '.woff2', '.ttf', '.eot', '.map', '.html', '.htm']
     if any(path.endswith(ext) for ext in skip_extensions):
         return False
     
     # Skip common non-API paths
-    skip_patterns = ['/resources/', '/static/', '/assets/', '/_next/', '/sockjs-node/']
+    skip_patterns = ['/resources/', '/static/', '/assets/', '/_next/', '/sockjs-node/', 
+                     '/favicon', '/__', '/bundle', '/chunk']
     if any(pattern in path for pattern in skip_patterns):
         return False
     
-    # Include if it's under /api/
-    if '/api/' in path:
+    # Get content type
+    content_type = response.headers.get("content-type", "").lower()
+    
+    # Skip HTML responses (pages, not APIs)
+    if "text/html" in content_type:
+        return False
+    
+    # Include if it's under /api/ or common API patterns
+    api_patterns = ['/api/', '/v1/', '/v2/', '/v3/', '/rest/', '/graphql', '/query']
+    if any(pattern in path for pattern in api_patterns):
+        print(f"[Record] ✓ Capturing (API path): {path}")
         return True
     
-    # Include if response is JSON
-    content_type = response.headers.get("content-type", "")
-    if "application/json" in content_type:
+    # Include if response is JSON or XML (common API formats)
+    if "application/json" in content_type or "application/xml" in content_type or "text/xml" in content_type:
+        print(f"[Record] ✓ Capturing (JSON/XML): {path}")
         return True
+    
+    # Include XHR-style requests (POST, PUT, PATCH, DELETE are usually APIs)
+    method = response.request.method.upper()
+    if method in ["POST", "PUT", "PATCH", "DELETE"]:
+        # Unless it's clearly a form submission
+        if "form" not in content_type:
+            print(f"[Record] ✓ Capturing ({method}): {path}")
+            return True
+    
+    # Log skipped requests for debugging
+    if path and not path.endswith('/'):
+        print(f"[Record] ✗ Skipped: {method} {path} ({content_type[:30] if content_type else 'no content-type'})")
     
     return False
 
