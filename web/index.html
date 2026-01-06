@@ -1416,6 +1416,13 @@
 
                     <!-- ========== RECORD MODE ========== -->
                     <div class="mode-content" id="recordModeContent">
+                        <!-- Profile Selector for Record Mode -->
+                        <div class="profile-selector">
+                            <select id="recordProfileSelect" onchange="loadRecordProfile(this.value)">
+                                <option value="">— Select a saved profile —</option>
+                            </select>
+                        </div>
+
                         <div class="form-group">
                             <label for="recordUrl">Start URL</label>
                             <input type="url" id="recordUrl" placeholder="https://example.com" required>
@@ -2373,18 +2380,32 @@
             try {
                 const response = await fetch('/api/profiles');
                 const data = await response.json();
-                const select = document.getElementById('profileSelect');
+                
+                // Get both selects
+                const crawlSelect = document.getElementById('profileSelect');
+                const recordSelect = document.getElementById('recordProfileSelect');
                 
                 // Clear existing options except the first
-                select.innerHTML = '<option value="">— Select a saved profile —</option>';
+                const defaultOption = '<option value="">— Select a saved profile —</option>';
+                crawlSelect.innerHTML = defaultOption;
+                recordSelect.innerHTML = defaultOption;
                 
-                // Add profiles (check if profiles array exists)
+                // Add profiles to both dropdowns
                 const profiles = data.profiles || [];
                 profiles.forEach(profile => {
-                    const option = document.createElement('option');
-                    option.value = profile.name;
-                    option.textContent = profile.name + (profile.description ? ` - ${profile.description}` : '');
-                    select.appendChild(option);
+                    const optText = profile.name + (profile.description ? ` - ${profile.description}` : '');
+                    
+                    // Add to Auto Crawl dropdown
+                    const crawlOpt = document.createElement('option');
+                    crawlOpt.value = profile.name;
+                    crawlOpt.textContent = optText;
+                    crawlSelect.appendChild(crawlOpt);
+                    
+                    // Add to Record Mode dropdown
+                    const recordOpt = document.createElement('option');
+                    recordOpt.value = profile.name;
+                    recordOpt.textContent = optText;
+                    recordSelect.appendChild(recordOpt);
                 });
             } catch (err) {
                 console.error('Failed to load profiles:', err);
@@ -2440,6 +2461,29 @@
                     document.getElementById('deleteProfileBtn').style.display = 'flex';
                     
                     addLog(`📁 Loaded profile: ${name}`);
+                }
+            } catch (err) {
+                showToast('Failed to load profile', 'error');
+            }
+        }
+
+        async function loadRecordProfile(name) {
+            // Load profile into Record Mode fields
+            if (!name) return;
+            
+            try {
+                const response = await fetch(`/api/profiles/${encodeURIComponent(name)}`);
+                const data = await response.json();
+                
+                if (data.config) {
+                    // Fill Record Mode form with profile data
+                    document.getElementById('recordUrl').value = data.config.url || '';
+                    document.getElementById('recordLoginUrl').value = data.config.login_url || '';
+                    document.getElementById('recordUsername').value = data.config.username || '';
+                    document.getElementById('recordPassword').value = data.config.password || '';
+                    
+                    showToast(`Loaded "${name}" into Record Mode`, 'success');
+                    addLog(`📁 Loaded profile for Record Mode: ${name}`);
                 }
             } catch (err) {
                 showToast('Failed to load profile', 'error');
