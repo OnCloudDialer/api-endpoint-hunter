@@ -1988,7 +1988,7 @@
             
             document.getElementById('editEndpointPath').textContent = endpoint.path;
             document.getElementById('editEndpointName').value = endpoint.name || endpoint.auto_name || '';
-            document.getElementById('editEndpointDescription').value = endpoint.description || '';
+            document.getElementById('editEndpointDescription').value = endpoint.description || endpoint.auto_description || '';
             document.getElementById('editEndpointId').value = endpoint.id;
             
             modal.classList.add('active');

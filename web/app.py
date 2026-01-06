@@ -758,8 +758,9 @@ async def run_recording(request: RecordRequest):
                 status = response.status
                 content_type = response.headers.get("content-type", "")
                 
-                # Auto-generate name from path
+                # Auto-generate name and description from path
                 auto_name = _generate_endpoint_name(method, normalized_path)
+                auto_description = _generate_endpoint_description(method, normalized_path, status)
                 tags = _infer_tags(normalized_path)
                 
                 # Store endpoint
@@ -772,6 +773,7 @@ async def run_recording(request: RecordRequest):
                     "status": status,
                     "content_type": content_type,
                     "auto_name": auto_name,
+                    "auto_description": auto_description,
                     "name": None,  # User can override
                     "description": None,
                     "tags": tags,
@@ -909,6 +911,66 @@ def _generate_endpoint_name(method: str, path: str) -> str:
     
     action = method_actions.get(method, method)
     return f"{action} {resource}"
+
+
+def _generate_endpoint_description(method: str, path: str, status: int) -> str:
+    """Generate a human-readable description for an endpoint."""
+    import re
+    
+    # Remove common prefixes and normalize
+    clean_path = re.sub(r'^/?(api|v\d+)/', '', path)
+    parts = [p for p in clean_path.split("/") if p and not p.startswith("{")]
+    
+    # Filter out version-like segments (v1, v2, etc.)
+    parts = [p for p in parts if not re.match(r'^v\d+$', p, re.I)]
+    
+    # Get resource name (last meaningful part)
+    if not parts:
+        resource = "resource"
+        resource_plural = "resources"
+    else:
+        resource = parts[-1].replace("-", " ").replace("_", " ").lower()
+        # Simple pluralization
+        resource_plural = resource + "s" if not resource.endswith("s") else resource
+    
+    # Check if it's a single item (has ID param)
+    is_single = "{id}" in path
+    
+    # Get parent resource if exists (excluding version segments)
+    parent = None
+    if len(parts) >= 2:
+        parent = parts[-2].replace("-", " ").replace("_", " ").lower()
+    
+    # Build description based on method
+    if method == "GET":
+        if is_single:
+            desc = f"Retrieves details of a specific {resource}"
+            if parent:
+                desc += f" within {parent}"
+        else:
+            desc = f"Returns a list of all {resource_plural}"
+            if parent:
+                desc += f" for the specified {parent}"
+    elif method == "POST":
+        desc = f"Creates a new {resource}"
+        if parent:
+            desc += f" under the specified {parent}"
+    elif method == "PUT":
+        desc = f"Replaces/updates an existing {resource} with new data"
+    elif method == "PATCH":
+        desc = f"Partially updates specific fields of a {resource}"
+    elif method == "DELETE":
+        desc = f"Removes a {resource} from the system"
+    else:
+        desc = f"Performs {method} operation on {resource}"
+    
+    # Add status code context
+    if status >= 200 and status < 300:
+        desc += "."
+    elif status >= 400:
+        desc += f" (returned {status} error)."
+    
+    return desc
 
 
 def _infer_tags(path: str) -> list:
