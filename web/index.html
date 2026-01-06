@@ -1138,15 +1138,24 @@
             margin-bottom: 1rem;
             font-family: 'JetBrains Mono', monospace;
             font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
         }
 
-        .edit-endpoint-modal .endpoint-preview .method {
+        .edit-endpoint-modal .endpoint-preview .endpoint-method {
             display: inline-block;
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
+            padding: 0.35rem 0.6rem;
+            border-radius: 6px;
             font-size: 0.75rem;
             font-weight: 600;
-            margin-right: 0.5rem;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .edit-endpoint-modal .endpoint-preview #editEndpointPath {
+            flex: 1;
+            word-break: break-all;
         }
 
         /* Record mode button variants */
@@ -1235,17 +1244,17 @@
         <div class="modal">
             <div class="modal-icon">✏️</div>
             <h2>Edit Endpoint</h2>
-            <div class="endpoint-preview">
-                <span class="method method-GET" id="editEndpointMethod">GET</span>
+            <div class="endpoint-preview" id="endpointPreview">
+                <span class="endpoint-method method-GET" id="editEndpointMethod">GET</span>
                 <span id="editEndpointPath">/api/example</span>
             </div>
             <div class="form-group">
                 <label for="editEndpointName">Name</label>
-                <input type="text" id="editEndpointName" placeholder="e.g., Get User Details">
+                <input type="text" id="editEndpointName" placeholder="e.g., Get User Details" onkeydown="handleEditKeydown(event)">
             </div>
             <div class="form-group">
                 <label for="editEndpointDescription">Description</label>
-                <textarea id="editEndpointDescription" placeholder="What does this endpoint do?"></textarea>
+                <textarea id="editEndpointDescription" placeholder="What does this endpoint do?" onkeydown="handleEditKeydown(event)"></textarea>
             </div>
             <input type="hidden" id="editEndpointId">
             <div class="modal-buttons">
@@ -1805,12 +1814,24 @@
         let recordedEndpoints = {};
 
         async function startRecording() {
-            const url = document.getElementById('recordUrl').value;
+            const url = document.getElementById('recordUrl').value.trim();
             
-            if (!url || !url.startsWith('http')) {
-                showToast('Please enter a valid URL', 'error');
+            if (!url) {
+                showToast('Please enter a URL to start recording', 'error');
+                document.getElementById('recordUrl').focus();
                 return;
             }
+            
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                showToast('URL must start with http:// or https://', 'error');
+                document.getElementById('recordUrl').focus();
+                return;
+            }
+            
+            // Disable button while starting
+            const startBtn = document.getElementById('startRecordBtn');
+            startBtn.disabled = true;
+            startBtn.innerHTML = '⏳ Launching browser...';
             
             const data = {
                 url: url,
@@ -1831,11 +1852,13 @@
                     recordedEndpoints = {};
                     
                     // Update UI
-                    document.getElementById('startRecordBtn').style.display = 'none';
+                    startBtn.style.display = 'none';
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = '🔴 Start Recording';
                     document.getElementById('recordStatusSection').style.display = 'block';
                     document.getElementById('recordedCount').textContent = '0';
                     document.getElementById('recordedEndpointsList').innerHTML = '';
-                    document.getElementById('recordedEmptyState').style.display = 'none';
+                    document.getElementById('recordedEmptyState').style.display = 'block';
                     
                     // Switch to recorded tab
                     switchTab('recorded');
@@ -1844,14 +1867,26 @@
                     showToast('Recording started! Click around in the browser window.', 'success');
                 } else {
                     const error = await response.json();
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = '🔴 Start Recording';
                     showToast(error.error || 'Failed to start recording', 'error');
+                    addLog('❌ Failed to start recording: ' + (error.error || 'Unknown error'));
                 }
             } catch (err) {
-                showToast('Failed to start recording: ' + err.message, 'error');
+                startBtn.disabled = false;
+                startBtn.innerHTML = '🔴 Start Recording';
+                showToast('Failed to connect to server: ' + err.message, 'error');
+                addLog('❌ Connection error: ' + err.message);
             }
         }
 
         async function stopRecording() {
+            const stopBtn = document.querySelector('#recordStatusSection button');
+            if (stopBtn) {
+                stopBtn.disabled = true;
+                stopBtn.innerHTML = '⏳ Stopping...';
+            }
+            
             try {
                 await fetch('/api/record/stop', { method: 'POST' });
                 
@@ -1861,10 +1896,22 @@
                 document.getElementById('startRecordBtn').style.display = 'block';
                 document.getElementById('recordStatusSection').style.display = 'none';
                 
-                addLog('⏹️ Recording stopped');
-                showToast('Recording stopped. You can now export the documentation.', 'info');
+                // Show export button if we have endpoints
+                const count = Object.keys(recordedEndpoints).length;
+                if (count > 0) {
+                    showToast(`Recording stopped. ${count} endpoints captured. Click "Export Documentation" to generate docs.`, 'success');
+                } else {
+                    showToast('Recording stopped. No endpoints were captured.', 'info');
+                }
+                
+                addLog(`⏹️ Recording stopped - ${count} endpoints captured`);
             } catch (err) {
-                showToast('Failed to stop recording', 'error');
+                showToast('Failed to stop recording: ' + err.message, 'error');
+            } finally {
+                if (stopBtn) {
+                    stopBtn.disabled = false;
+                    stopBtn.innerHTML = '⏹️ Stop Recording';
+                }
             }
         }
 
@@ -1937,7 +1984,7 @@
             const methodEl = document.getElementById('editEndpointMethod');
             
             methodEl.textContent = endpoint.method;
-            methodEl.className = `method method-${endpoint.method}`;
+            methodEl.className = `endpoint-method method-${endpoint.method}`;
             
             document.getElementById('editEndpointPath').textContent = endpoint.path;
             document.getElementById('editEndpointName').value = endpoint.name || endpoint.auto_name || '';
@@ -1945,12 +1992,36 @@
             document.getElementById('editEndpointId').value = endpoint.id;
             
             modal.classList.add('active');
-            document.getElementById('editEndpointName').focus();
+            
+            // Focus and select the name field for quick editing
+            const nameInput = document.getElementById('editEndpointName');
+            nameInput.focus();
+            nameInput.select();
         }
 
         function closeEditEndpointModal() {
             document.getElementById('editEndpointModal').classList.remove('active');
         }
+
+        // Keyboard shortcuts for edit modal
+        function handleEditKeydown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                confirmEndpoint();
+            } else if (event.key === 'Escape') {
+                closeEditEndpointModal();
+            }
+        }
+
+        // Global keyboard listener for edit modal
+        document.addEventListener('keydown', (event) => {
+            const modal = document.getElementById('editEndpointModal');
+            if (!modal.classList.contains('active')) return;
+            
+            if (event.key === 'Escape') {
+                closeEditEndpointModal();
+            }
+        });
 
         async function confirmEndpoint() {
             const id = document.getElementById('editEndpointId').value;
