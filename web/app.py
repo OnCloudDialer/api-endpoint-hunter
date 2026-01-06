@@ -523,23 +523,43 @@ async def run_crawl(request: CrawlRequest):
 @app.post("/api/record/start")
 async def start_recording(request: RecordRequest):
     """Start record mode with a visible browser."""
-    if record_state["recording"]:
-        return JSONResponse({"error": "Recording already in progress"}, status_code=400)
+    # Close any existing browser first
+    if record_state.get("browser"):
+        print(f"[Record Mode] Closing existing browser before starting new session")
+        try:
+            await record_state["browser"].close()
+        except Exception as e:
+            print(f"[Record Mode] Error closing existing browser: {e}")
+        record_state["browser"] = None
+        record_state["context"] = None
+        record_state["page"] = None
+    
+    # Cancel any existing task
+    if record_state.get("task") and not record_state["task"].done():
+        print(f"[Record Mode] Cancelling existing task")
+        record_state["task"].cancel()
+        try:
+            await asyncio.wait_for(record_state["task"], timeout=2.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
     
     # Validate URL
     if not request.url or not request.url.startswith(('http://', 'https://')):
         return JSONResponse({"error": "Invalid URL"}, status_code=400)
     
+    print(f"[Record Mode] Starting with URL: {request.url}")
+    
     # Reset state
     record_state["recording"] = True
     record_state["captured_endpoints"] = []
     record_state["endpoint_groups"] = {}
+    record_state["task"] = None
     
     # Start recording in background
     task = asyncio.create_task(run_recording(request))
     record_state["task"] = task
     
-    return {"status": "started"}
+    return {"status": "started", "url": request.url}
 
 
 @app.post("/api/record/stop")
@@ -674,7 +694,8 @@ async def run_recording(request: RecordRequest):
     from playwright.async_api import async_playwright
     
     try:
-        await broadcast({"type": "record_status", "message": "🚀 Launching browser..."})
+        print(f"[Record Mode] run_recording called with URL: {request.url}")
+        await broadcast({"type": "record_status", "message": f"🚀 Launching browser for {request.url}..."})
         
         record_state["start_url"] = request.url
         
@@ -796,8 +817,10 @@ async def run_recording(request: RecordRequest):
                 print(f"Login automation failed: {e}")
         
         # Navigate to start URL
+        print(f"[Record Mode] Navigating to: {request.url}")
         await broadcast({"type": "record_status", "message": f"🌐 Navigating to {request.url}"})
         await page.goto(request.url, wait_until="networkidle")
+        print(f"[Record Mode] Successfully loaded: {page.url}")
         
         await broadcast({
             "type": "record_ready",
