@@ -799,6 +799,22 @@ async def export_recorded_docs():
         traceback.print_exc()
         raise
     
+    # Write raw endpoints JSON
+    endpoints_json_path = Path(output_dir) / "endpoints.json"
+    try:
+        writer.write_raw_endpoints(groups)
+        print(f"[Export] ✅ Wrote endpoints.json to {endpoints_json_path}")
+        if endpoints_json_path.exists():
+            file_size = endpoints_json_path.stat().st_size
+            print(f"[Export] ✅ endpoints.json exists, size: {file_size} bytes")
+        else:
+            print(f"[Export] ❌ ERROR: endpoints.json was NOT created at {endpoints_json_path}")
+    except Exception as e:
+        print(f"[Export] ❌ ERROR writing endpoints.json: {e}")
+        import traceback
+        traceback.print_exc()
+        # Don't raise - this is optional
+    
     print(f"[Export] ✅ Successfully exported {len(groups)} endpoints to {output_dir}")
     
     await broadcast({
