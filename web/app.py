@@ -596,9 +596,13 @@ async def stop_recording():
 @app.get("/api/record/endpoints")
 async def get_recorded_endpoints():
     """Get all captured endpoints during recording."""
+    endpoints = list(record_state["endpoint_groups"].values())
+    print(f"[API] get_recorded_endpoints: returning {len(endpoints)} endpoints")
+    for ep in endpoints[:3]:  # Log first 3
+        print(f"  - {ep['method']} {ep['path']} (base: {ep.get('base_url', 'N/A')})")
     return {
-        "endpoints": list(record_state["endpoint_groups"].values()),
-        "count": len(record_state["endpoint_groups"]),
+        "endpoints": endpoints,
+        "count": len(endpoints),
     }
 
 
@@ -632,16 +636,26 @@ async def edit_recorded_endpoint(request: EndpointEditRequest):
 @app.post("/api/record/export")
 async def export_recorded_docs():
     """Generate documentation from recorded endpoints."""
-    print(f"[Export] Starting export...")
+    print(f"[Export] ========== STARTING EXPORT ==========")
     print(f"[Export] Record state has {len(record_state['endpoint_groups'])} endpoints")
+    print(f"[Export] Start URL: {record_state.get('start_url', 'NOT SET')}")
     
-    if not record_state["endpoint_groups"]:
+    # Get fresh copy of endpoints
+    all_endpoints = list(record_state["endpoint_groups"].values())
+    
+    if not all_endpoints:
         print("[Export] ERROR: No endpoints in record_state!")
+        print("[Export] This means no endpoints were captured during recording.")
         return JSONResponse({"error": "No endpoints captured"}, status_code=400)
+    
+    # Log all endpoints we're about to export
+    print(f"[Export] All endpoints in record_state:")
+    for i, ep in enumerate(all_endpoints, 1):
+        print(f"  {i}. {ep['method']} {ep['path']} (base: {ep.get('base_url', 'N/A')}, skipped: {ep.get('skipped', False)})")
     
     # Filter out skipped endpoints
     endpoints_to_export = [
-        ep for ep in record_state["endpoint_groups"].values()
+        ep for ep in all_endpoints
         if not ep.get("skipped", False)
     ]
     

@@ -1924,6 +1924,23 @@
 
         async function exportRecorded() {
             try {
+                // First, refresh endpoints from backend to ensure sync
+                addLog('🔄 Syncing with backend...');
+                const syncResponse = await fetch('/api/record/endpoints');
+                if (syncResponse.ok) {
+                    const syncData = await syncResponse.json();
+                    console.log(`[Export] Backend has ${syncData.count} endpoints`);
+                    
+                    // Update local recordedEndpoints with backend data
+                    syncData.endpoints.forEach(ep => {
+                        recordedEndpoints[ep.id] = ep;
+                    });
+                    renderRecordedEndpoints();
+                    addLog(`✅ Synced: ${syncData.count} endpoints from backend`);
+                }
+                
+                // Now export
+                addLog('📄 Exporting documentation...');
                 const response = await fetch('/api/record/export', { method: 'POST' });
                 const data = await response.json();
                 
@@ -1935,9 +1952,11 @@
                     document.getElementById('downloadButtons').style.display = 'flex';
                 } else {
                     showToast(data.error || 'Failed to export', 'error');
+                    addLog(`❌ Export failed: ${data.error || 'Unknown error'}`);
                 }
             } catch (err) {
                 showToast('Failed to export: ' + err.message, 'error');
+                addLog(`❌ Export error: ${err.message}`);
             }
         }
 
