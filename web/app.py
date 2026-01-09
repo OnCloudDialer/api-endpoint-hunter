@@ -159,11 +159,15 @@ async def get_endpoints():
 
 
 @app.get("/api/docs/openapi")
-async def get_openapi_doc():
+async def get_openapi_doc(download: int = 0):
     """Get the generated OpenAPI spec."""
     docs_path = Path(__file__).parent.parent / "api-docs" / "openapi.yaml"
     if docs_path.exists():
-        return FileResponse(docs_path, media_type="text/yaml")
+        # Add headers to force download if requested
+        headers = {}
+        if download:
+            headers["Content-Disposition"] = 'attachment; filename="openapi.yaml"'
+        return FileResponse(docs_path, media_type="text/yaml", headers=headers)
     return JSONResponse({"error": "No documentation generated yet"}, status_code=404)
 
 
@@ -597,12 +601,15 @@ async def stop_recording():
 async def get_recorded_endpoints():
     """Get all captured endpoints during recording."""
     endpoints = list(record_state["endpoint_groups"].values())
+    start_url = record_state.get("start_url", "NOT SET")
     print(f"[API] get_recorded_endpoints: returning {len(endpoints)} endpoints")
+    print(f"[API] Current start_url: {start_url}")
     for ep in endpoints[:3]:  # Log first 3
         print(f"  - {ep['method']} {ep['path']} (base: {ep.get('base_url', 'N/A')})")
     return {
         "endpoints": endpoints,
         "count": len(endpoints),
+        "start_url": start_url,  # Include so frontend can verify
     }
 
 
@@ -638,7 +645,15 @@ async def export_recorded_docs():
     """Generate documentation from recorded endpoints."""
     print(f"[Export] ========== STARTING EXPORT ==========")
     print(f"[Export] Record state has {len(record_state['endpoint_groups'])} endpoints")
-    print(f"[Export] Start URL: {record_state.get('start_url', 'NOT SET')}")
+    start_url = record_state.get('start_url', 'NOT SET')
+    print(f"[Export] Start URL: {start_url}")
+    
+    # Warn if start_url looks like it might be from a profile
+    if start_url and 'kyocera' in start_url.lower() and len(record_state['endpoint_groups']) > 0:
+        # Check if any endpoints have different base_urls
+        unique_base_urls = set(ep.get('base_url', '') for ep in record_state['endpoint_groups'].values())
+        if len(unique_base_urls) > 1 or (unique_base_urls and start_url not in unique_base_urls):
+            print(f"[Export] ⚠️ WARNING: start_url ({start_url}) doesn't match endpoint base_urls: {unique_base_urls}")
     
     # Get fresh copy of endpoints
     all_endpoints = list(record_state["endpoint_groups"].values())
@@ -674,8 +689,9 @@ async def export_recorded_docs():
     # Convert to EndpointGroup format for generator
     from src.models import EndpointGroup
     
+    print(f"[Export] Converting {len(endpoints_to_export)} endpoints to EndpointGroup format...")
     groups = []
-    for ep in endpoints_to_export:
+    for i, ep in enumerate(endpoints_to_export, 1):
         # Use user-provided name or auto-generated
         summary = ep.get("name") or ep.get("auto_name", "Unnamed Endpoint")
         description = ep.get("description") or ep.get("auto_description", "")
@@ -683,7 +699,7 @@ async def export_recorded_docs():
         # Use the base_url from the actual recorded request, not from config
         base_url = ep.get("base_url", record_state.get("start_url", "https://example.com"))
         
-        print(f"[Export] Creating group: {ep['method']} {ep['path']} -> {base_url}")
+        print(f"[Export] [{i}/{len(endpoints_to_export)}] {ep['method']} {ep['path']} -> base: {base_url}, name: {summary}")
         
         group = EndpointGroup(
             method=HttpMethod(ep["method"]),
@@ -694,6 +710,11 @@ async def export_recorded_docs():
             tags=ep.get("tags", ["General"]),
         )
         groups.append(group)
+    
+    print(f"[Export] Created {len(groups)} EndpointGroup objects")
+    print(f"[Export] Sample groups (first 3):")
+    for g in groups[:3]:
+        print(f"  - {g.method.value} {g.path_pattern} (base: {g.base_url}, summary: {g.summary})")
     
     # Generate documentation
     output_dir = str(Path(__file__).parent.parent / "api-docs")
@@ -710,11 +731,51 @@ async def export_recorded_docs():
     
     openapi_gen = OpenAPIGenerator()
     spec = openapi_gen.generate(groups, config)
-    writer.write_openapi(spec)
+    
+    # Write OpenAPI spec
+    openapi_path = Path(output_dir) / "openapi.yaml"
+    try:
+        writer.write_openapi(spec)
+        print(f"[Export] ✅ Wrote OpenAPI spec to {openapi_path}")
+        # Verify file was written
+        if openapi_path.exists():
+            file_size = openapi_path.stat().st_size
+            print(f"[Export] ✅ OpenAPI file exists, size: {file_size} bytes")
+            # Read first few lines to verify content
+            with open(openapi_path, 'r') as f:
+                first_lines = ''.join(f.readlines()[:5])
+                print(f"[Export] OpenAPI first lines:\n{first_lines}")
+        else:
+            print(f"[Export] ❌ ERROR: OpenAPI file was NOT created at {openapi_path}")
+    except Exception as e:
+        print(f"[Export] ❌ ERROR writing OpenAPI: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
     
     md_gen = MarkdownGenerator()
     markdown = md_gen.generate(groups, config)
-    writer.write_markdown(markdown)
+    
+    # Write Markdown
+    markdown_path = Path(output_dir) / "api-docs.md"
+    try:
+        writer.write_markdown(markdown)
+        print(f"[Export] ✅ Wrote Markdown to {markdown_path}")
+        # Verify file was written
+        if markdown_path.exists():
+            file_size = markdown_path.stat().st_size
+            print(f"[Export] ✅ Markdown file exists, size: {file_size} bytes")
+            # Read first few lines to verify content
+            with open(markdown_path, 'r') as f:
+                first_lines = ''.join(f.readlines()[:10])
+                print(f"[Export] Markdown first lines:\n{first_lines}")
+        else:
+            print(f"[Export] ❌ ERROR: Markdown file was NOT created at {markdown_path}")
+    except Exception as e:
+        print(f"[Export] ❌ ERROR writing Markdown: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
     
     print(f"[Export] ✅ Successfully exported {len(groups)} endpoints to {output_dir}")
     
