@@ -163,20 +163,42 @@ async def get_openapi_doc(download: int = 0):
     """Get the generated OpenAPI spec."""
     docs_path = Path(__file__).parent.parent / "api-docs" / "openapi.yaml"
     if docs_path.exists():
-        # Add headers to force download if requested
-        headers = {}
+        # Add headers to force download if requested and prevent caching
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
         if download:
             headers["Content-Disposition"] = 'attachment; filename="openapi.yaml"'
-        return FileResponse(docs_path, media_type="text/yaml", headers=headers)
+        return FileResponse(
+            docs_path, 
+            media_type="text/yaml", 
+            headers=headers,
+            filename="openapi.yaml" if download else None
+        )
     return JSONResponse({"error": "No documentation generated yet"}, status_code=404)
 
 
 @app.get("/api/docs/markdown")
-async def get_markdown_doc():
+async def get_markdown_doc(download: int = 0):
     """Get the generated Markdown doc."""
     docs_path = Path(__file__).parent.parent / "api-docs" / "api-docs.md"
     if docs_path.exists():
-        return FileResponse(docs_path, media_type="text/markdown")
+        # Add headers to prevent caching
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+        if download:
+            headers["Content-Disposition"] = 'attachment; filename="api-docs.md"'
+        return FileResponse(
+            docs_path, 
+            media_type="text/markdown", 
+            headers=headers,
+            filename="api-docs.md" if download else None
+        )
     return JSONResponse({"error": "No documentation generated yet"}, status_code=404)
 
 
