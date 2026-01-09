@@ -549,11 +549,13 @@ async def start_recording(request: RecordRequest):
     
     print(f"[Record Mode] Starting with URL: {request.url}")
     
-    # Reset state
+    # Reset state - CLEAR EVERYTHING to avoid mixing old data
     record_state["recording"] = True
     record_state["captured_endpoints"] = []
-    record_state["endpoint_groups"] = {}
+    record_state["endpoint_groups"] = {}  # Clear old endpoints!
+    record_state["start_url"] = request.url  # Store the actual URL they're using
     record_state["task"] = None
+    print(f"[Record Mode] Cleared all old endpoints. Starting fresh with {request.url}")
     
     # Start recording in background
     task = asyncio.create_task(run_recording(request))
@@ -630,7 +632,11 @@ async def edit_recorded_endpoint(request: EndpointEditRequest):
 @app.post("/api/record/export")
 async def export_recorded_docs():
     """Generate documentation from recorded endpoints."""
+    print(f"[Export] Starting export...")
+    print(f"[Export] Record state has {len(record_state['endpoint_groups'])} endpoints")
+    
     if not record_state["endpoint_groups"]:
+        print("[Export] ERROR: No endpoints in record_state!")
         return JSONResponse({"error": "No endpoints captured"}, status_code=400)
     
     # Filter out skipped endpoints
@@ -639,8 +645,17 @@ async def export_recorded_docs():
         if not ep.get("skipped", False)
     ]
     
+    print(f"[Export] After filtering skipped: {len(endpoints_to_export)} endpoints")
+    
     if not endpoints_to_export:
         return JSONResponse({"error": "All endpoints were skipped"}, status_code=400)
+    
+    # Log what we're exporting
+    print(f"[Export] Exporting {len(endpoints_to_export)} endpoints:")
+    for ep in endpoints_to_export[:5]:  # Log first 5
+        print(f"  - {ep['method']} {ep['path']} (base: {ep.get('base_url', 'N/A')})")
+    if len(endpoints_to_export) > 5:
+        print(f"  ... and {len(endpoints_to_export) - 5} more")
     
     # Convert to EndpointGroup format for generator
     from src.models import EndpointGroup
@@ -648,13 +663,18 @@ async def export_recorded_docs():
     groups = []
     for ep in endpoints_to_export:
         # Use user-provided name or auto-generated
-        summary = ep.get("name") or ep.get("auto_name", "")
-        description = ep.get("description", "")
+        summary = ep.get("name") or ep.get("auto_name", "Unnamed Endpoint")
+        description = ep.get("description") or ep.get("auto_description", "")
+        
+        # Use the base_url from the actual recorded request, not from config
+        base_url = ep.get("base_url", record_state.get("start_url", "https://example.com"))
+        
+        print(f"[Export] Creating group: {ep['method']} {ep['path']} -> {base_url}")
         
         group = EndpointGroup(
             method=HttpMethod(ep["method"]),
             path_pattern=ep["path"],
-            base_url=ep["base_url"],
+            base_url=base_url,
             summary=summary,
             description=description,
             tags=ep.get("tags", ["General"]),
@@ -665,9 +685,13 @@ async def export_recorded_docs():
     output_dir = str(Path(__file__).parent.parent / "api-docs")
     writer = DocumentationWriter(output_dir)
     
+    # Use the start_url from record_state (the actual URL they navigated to)
+    actual_start_url = record_state.get("start_url", "https://example.com")
+    print(f"[Export] Using start_url: {actual_start_url}")
+    
     # Create a minimal config for the generators
     config = CrawlConfig(
-        start_url=record_state.get("start_url", "https://example.com"),
+        start_url=actual_start_url,
     )
     
     openapi_gen = OpenAPIGenerator()
@@ -678,6 +702,8 @@ async def export_recorded_docs():
     markdown = md_gen.generate(groups, config)
     writer.write_markdown(markdown)
     
+    print(f"[Export] ✅ Successfully exported {len(groups)} endpoints to {output_dir}")
+    
     await broadcast({
         "type": "record_export_complete",
         "endpoints_count": len(groups),
@@ -686,6 +712,7 @@ async def export_recorded_docs():
     return {
         "status": "exported",
         "endpoints_count": len(groups),
+        "output_dir": output_dir,
     }
 
 
@@ -764,12 +791,13 @@ async def run_recording(request: RecordRequest):
                 tags = _infer_tags(normalized_path)
                 
                 # Store endpoint
+                base_url = f"{parsed.scheme}://{parsed.netloc}"
                 endpoint_data = {
                     "id": endpoint_id,
                     "method": method,
                     "path": normalized_path,
                     "original_path": path,
-                    "base_url": f"{parsed.scheme}://{parsed.netloc}",
+                    "base_url": base_url,
                     "status": status,
                     "content_type": content_type,
                     "auto_name": auto_name,
@@ -782,7 +810,9 @@ async def run_recording(request: RecordRequest):
                     "captured_at": datetime.now().isoformat(),
                 }
                 
+                print(f"[Record] 📡 Captured: {method} {normalized_path} from {base_url}")
                 record_state["endpoint_groups"][endpoint_id] = endpoint_data
+                print(f"[Record] Total endpoints now: {len(record_state['endpoint_groups'])}")
                 
                 # Broadcast new endpoint
                 await broadcast({
