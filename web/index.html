@@ -1684,9 +1684,23 @@
         document.getElementById('crawlForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            // Auto-add https:// to URL if just a domain was entered
+            let url = document.getElementById('url').value.trim();
+            if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://' + url;
+                document.getElementById('url').value = url; // Update the field
+            }
+            
+            // Auto-add https:// to login_url if provided
+            let loginUrl = document.getElementById('loginUrl').value.trim() || null;
+            if (loginUrl && !loginUrl.startsWith('http://') && !loginUrl.startsWith('https://')) {
+                loginUrl = 'https://' + loginUrl;
+                document.getElementById('loginUrl').value = loginUrl; // Update the field
+            }
+            
             const formData = {
-                url: document.getElementById('url').value,
-                login_url: document.getElementById('loginUrl').value || null,
+                url: url,
+                login_url: loginUrl,
                 username: document.getElementById('username').value || null,
                 password: document.getElementById('password').value || null,
                 max_pages: parseInt(document.getElementById('maxPages').value),
@@ -1821,7 +1835,7 @@
         let recordedEndpoints = {};
 
         async function startRecording() {
-            const url = document.getElementById('recordUrl').value.trim();
+            let url = document.getElementById('recordUrl').value.trim();
             
             if (!url) {
                 showToast('Please enter a URL to start recording', 'error');
@@ -1829,10 +1843,17 @@
                 return;
             }
             
+            // Auto-add https:// if just a domain was entered
             if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                showToast('URL must start with http:// or https://', 'error');
-                document.getElementById('recordUrl').focus();
-                return;
+                url = 'https://' + url;
+                document.getElementById('recordUrl').value = url; // Update the field
+            }
+            
+            // Auto-add https:// to login_url if provided
+            let loginUrl = document.getElementById('recordLoginUrl').value.trim() || null;
+            if (loginUrl && !loginUrl.startsWith('http://') && !loginUrl.startsWith('https://')) {
+                loginUrl = 'https://' + loginUrl;
+                document.getElementById('recordLoginUrl').value = loginUrl; // Update the field
             }
             
             // Disable button while starting
@@ -1842,7 +1863,7 @@
             
             const data = {
                 url: url,
-                login_url: document.getElementById('recordLoginUrl').value || null,
+                login_url: loginUrl,
                 username: document.getElementById('recordUsername').value || null,
                 password: document.getElementById('recordPassword').value || null,
             };

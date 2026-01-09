@@ -309,8 +309,21 @@ async def start_crawl(request: CrawlRequest):
         return JSONResponse({"error": "A crawl is already in progress"}, status_code=400)
     
     # Validate URL
-    if not request.url or not request.url.startswith(('http://', 'https://')):
-        return JSONResponse({"error": "Invalid URL. Must start with http:// or https://"}, status_code=400)
+    if not request.url:
+        return JSONResponse({"error": "URL is required"}, status_code=400)
+    
+    # Auto-add https:// if just a domain was entered
+    url = request.url.strip()
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+        request.url = url  # Update the request
+    
+    # Also normalize login_url if provided
+    if request.login_url:
+        login_url = request.login_url.strip()
+        if not login_url.startswith(('http://', 'https://')):
+            login_url = 'https://' + login_url
+            request.login_url = login_url
     
     # Reset ALL state
     crawl_state["running"] = True
@@ -569,9 +582,15 @@ async def start_recording(request: RecordRequest):
         except (asyncio.CancelledError, asyncio.TimeoutError):
             pass
     
-    # Validate URL
-    if not request.url or not request.url.startswith(('http://', 'https://')):
-        return JSONResponse({"error": "Invalid URL"}, status_code=400)
+    # Validate and normalize URL
+    if not request.url:
+        return JSONResponse({"error": "URL is required"}, status_code=400)
+    
+    # Auto-add https:// if just a domain was entered
+    url = request.url.strip()
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+        request.url = url  # Update the request
     
     print(f"[Record Mode] Starting with URL: {request.url}")
     
